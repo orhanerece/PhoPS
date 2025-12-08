@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
+#ORHANERECE
 from astropy.io import fits
 
 fits_file = "atlas.fit"
