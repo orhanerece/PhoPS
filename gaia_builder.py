@@ -1,187 +1,207 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#ORHANERECE
-from astropy.io import fits
+# ORHANERECE — Dynamic Astrometry Module
 
-fits_file = "atlas.fit"
-#
-# # FITS dosyasını aç, değişiklik yapmak için 'update' modunda
-# with fits.open(fits_file, mode='update') as hdul:
-#     hdr = hdul[0].header  # primary header
-#
-#     # TEMPERAT keyword'ünü sil
-#     if "NOTES" in hdr:
-#         del hdr["NOTES"]
-#         print("✅ TEMPERAT silindi.")
-#
-#
-# exit()
 import os
 import subprocess
+from pathlib import Path
 from astroquery.gaia import Gaia
-from astropy.table import Table
 from astropy.io import fits
+
+# -------------------------------------------------
+# Utilities
+# -------------------------------------------------
+
 def ra_to_deg(ra_str):
-    """RA 'HH:MM:SS' → derece"""
+    """Convert RA 'HH:MM:SS' to degrees."""
     h, m, s = [float(x) for x in ra_str.split(":")]
     return 15 * (h + m/60 + s/3600)
 
 
 def dec_to_deg(dec_str):
-    """DEC '±DD:MM:SS' → derece"""
-    parts = dec_str.split(":")
-    d = float(parts[0])
-    m = float(parts[1])
-    s = float(parts[2])
-
-    sign = 1
-    if d < 0:
-        sign = -1
-        d = abs(d)
-
-    return sign * (d + m/60 + s/3600)
-
-# ---------------------------------------------------
-# Girdi parametreleri (Senin değerlerin)
-# ---------------------------------------------------
-solve_image = "atlas.fit"   # Çözülecek görüntü
-solve_dir = "solve_output"
-index_dir = "output_index"
-
-with fits.open(solve_image) as hdul:
-    hdr = hdul[0].header
-    print(hdr)
-    RA_CENTER = ra_to_deg(hdr.get("RA", hdr.get("RA")))
-    DEC_CENTER = dec_to_deg(hdr.get("DEC", hdr.get("DEC")))
-
-RADIUS_DEG = 0.5   # Gaia patch yarıçapı
-
-# Solve-field parametreleri
-pixel_scale = 0.4      # arcsec/pixel
-pixel_scale_low  = pixel_scale * 0.7
-pixel_scale_high = pixel_scale * 1.4
+    """Convert DEC '±DD:MM:SS' to degrees."""
+    d, m, s = [float(x) for x in dec_str.split(":")]
+    sign = -1 if str(d).startswith("-") else 1
+    d = abs(float(d))
+    return sign * (d + float(m)/60 + float(s)/3600)
 
 
-# ---------------------------------------------------
-# 1) GAIA ADQL QUERY
-# ---------------------------------------------------
+# -------------------------------------------------
+# Main Class
+# -------------------------------------------------
 
-ADQL_QUERY = f"""
-SELECT
-    gaia_source.source_id,
-    gaia_source.ra,
-    gaia_source.dec,
-    gaia_source.pmra,
-    gaia_source.pmdec,
-    gaia_source.phot_g_mean_mag
-FROM gaiadr3.gaia_source
-WHERE CONTAINS(
-    POINT('ICRS', gaia_source.ra, gaia_source.dec),
-    CIRCLE('ICRS', {RA_CENTER}, {DEC_CENTER}, {RADIUS_DEG})
-) = 1
-ORDER BY phot_g_mean_mag
-"""
+class DynamicAstrometry:
+    def __init__(
+        self,
+        fits_file,
+        solve_dir=".",
+        index_dir="output_index",
+        hp_dir="gaia_hp",
+        input_cat_dir="input_cat",
+        radius_deg=0.5,
+        pixel_scale=0.61
+    ):
+        self.fits_file = fits_file
+        self.solve_dir = solve_dir
+        self.index_dir = index_dir
+        self.hp_dir = hp_dir
+        self.input_cat_dir = input_cat_dir
 
-# ---------------------------------------------------
-# 2) Klasörler
-# ---------------------------------------------------
+        self.radius_deg = radius_deg
+        self.pixel_scale = pixel_scale
+        self.pixel_scale_low = pixel_scale * 0.7
+        self.pixel_scale_high = pixel_scale * 1.4
 
-os.makedirs("input_cat", exist_ok=True)
-os.makedirs("gaia_hp", exist_ok=True)
-os.makedirs("output_index", exist_ok=True)
-os.makedirs(solve_dir, exist_ok=True)
+        # Create directories
+        os.makedirs(self.solve_dir, exist_ok=True)
+        os.makedirs(self.index_dir, exist_ok=True)
+        os.makedirs(self.hp_dir, exist_ok=True)
+        os.makedirs(self.input_cat_dir, exist_ok=True)
 
-PATCH_FILE = "input_cat/gaia_patch.fits"
+        self.patch_file = os.path.join(self.input_cat_dir, "gaia_patch.fits")
 
-# ---------------------------------------------------
-# 3) GAIA PATCH İNDİR
-# ---------------------------------------------------
+    # -------------------------------------------------
+    # Step 1: Read RA/DEC from FITS header
+    # -------------------------------------------------
+    def get_header_coords(self):
+        with fits.open(self.fits_file) as hdul:
+            hdr = hdul[0].header
+            ra_str = hdr.get("OBJCTRA", hdr.get("RA"))
+            dec_str = hdr.get("OBJCTDEC", hdr.get("DEC"))
 
-print("🔭 Gaia sorgusu gönderiliyor...")
-job = Gaia.launch_job_async(ADQL_QUERY)
-gaia_data = job.get_results()
+        self.ra_deg = ra_to_deg(ra_str)
+        self.dec_deg = dec_to_deg(dec_str)
 
-print(f"💾 {len(gaia_data)} Gaia kaynağı indirildi.")
-gaia_data.write(PATCH_FILE, overwrite=True)
-print(f"💾 Gaia patch kaydedildi: {PATCH_FILE}")
+        return self.ra_deg, self.dec_deg
 
-# ---------------------------------------------------
-# 4) HPSPLIT – HEALPIX TILES
-# ---------------------------------------------------
+    # -------------------------------------------------
+    # Step 2: Download Gaia patch
+    # -------------------------------------------------
+    def download_gaia_patch(self):
+        print("Gaia sorgusu gönderiliyor...")
 
-print("\n🧩 HEALPix tile'lar oluşturuluyor...")
+        adql = f"""
+        SELECT
+            gaia_source.source_id,
+            gaia_source.ra,
+            gaia_source.dec,
+            gaia_source.pmra,
+            gaia_source.pmdec,
+            gaia_source.phot_g_mean_mag
+        FROM gaiadr3.gaia_source
+        WHERE CONTAINS(
+            POINT('ICRS', gaia_source.ra, gaia_source.dec),
+            CIRCLE('ICRS', {self.ra_deg}, {self.dec_deg}, {self.radius_deg})
+        ) = 1
+        ORDER BY phot_g_mean_mag
+        """
 
-cmd_hpsplit = [
-    "hpsplit",
-    "-o", "gaia_hp/gaia-hp%02i.fits",
-    "-n", "2",              # NSIDE = 2
-    PATCH_FILE
-]
+        job = Gaia.launch_job_async(adql)
+        gaia_data = job.get_results()
+        gaia_data.write(self.patch_file, overwrite=True)
 
-subprocess.run(cmd_hpsplit, check=True)
-print("✅ hpsplit tamamlandı.")
+        print(f"{len(gaia_data)} Gaia kaynağı indirildi → {self.patch_file}")
 
-# ---------------------------------------------------
-# 5) TILE listesini al
-# ---------------------------------------------------
+    # -------------------------------------------------
+    # Step 3: hpsplit — HEALPix tiles
+    # -------------------------------------------------
+    def generate_healpix_tiles(self):
+        print("HEALPix tile üretiliyor...")
 
-tile_files = sorted([f for f in os.listdir("gaia_hp") if f.endswith(".fits")])
-tile_ids = [int(f.split("gaia-hp")[1].split(".")[0]) for f in tile_files]
-
-print(f"📦 Bulunan HEALPix tile ID'leri: {tile_ids}")
-
-# ---------------------------------------------------
-# 6) BUILD ASTROMETRY INDEX FILES
-# ---------------------------------------------------
-
-quad_scales = [0, 2, 4, 6]
-
-print("\n⚙ Index üretimi başlıyor...\n")
-
-for tile_id in tile_ids:
-    tile_path = f"gaia_hp/gaia-hp{tile_id:02d}.fits"
-
-    for P in quad_scales:
-        SS = f"{P:02d}"
-        output_index = f"{index_dir}/index-550{SS}-{tile_id:02d}.fits"
-        index_id = f"550{SS}{tile_id:02d}"
-
-        cmd_index = [
-            "build-astrometry-index",
-            "-i", tile_path,
-            "-s", "2",                   # NSIDE=2
-            "-P", str(P),
-            "-E",
-            "-S", "phot_g_mean_mag",
-            "-o", output_index,
-            "-I", index_id
+        cmd = [
+            "hpsplit",
+            "-o", f"{self.hp_dir}/gaia-hp%02i.fits",
+            "-n", "2",
+            self.patch_file
         ]
 
-        print(f"➡️ Tile {tile_id:02d}, P={P}: {output_index}")
-        subprocess.run(cmd_index, check=True)
+        subprocess.run(cmd, check=True)
+        print("hpsplit tamamlandı.")
 
-print("\n🎉 TÜM index dosyaları oluşturuldu!")
+        self.tile_files = sorted([
+            f for f in os.listdir(self.hp_dir) if f.endswith(".fits")
+        ])
 
-#---------------------------------------------------
-# 7) SOLVE-FIELD ÇALIŞTIR
-# ---------------------------------------------------
+        self.tile_ids = [int(f.split("gaia-hp")[1].split(".")[0]) for f in self.tile_files]
 
-print("\n🔎 solve-field çalıştırılıyor...")
+        print("Bulunan tile ID'leri:", self.tile_ids)
 
-cmd_solve = [
-    "solve-field",
-    solve_image,
-    "--dir", solve_dir,
-    "--scale-units", "arcsecperpix",
-    "--scale-low", str(pixel_scale_low),
-    "--scale-high", str(pixel_scale_high),
-    "--overwrite",
-    "--no-plots",
-    "--index-dir", index_dir
-]
+    # -------------------------------------------------
+    # Step 4: build-astrometry-index
+    # -------------------------------------------------
+    def build_index_files(self):
+        print("\nIndex üretimi başlıyor...")
 
-print("➡️ Komut:", " ".join(cmd_solve))
-subprocess.run(cmd_solve, check=True)
+        quad_scales = [0, 2, 4, 6]
 
-print("\n✅ solve-field tamamlandı!")
-print(f"📁 Çıkış dizini: {solve_dir}")
+        for tile_id in self.tile_ids:
+            tile_path = f"{self.hp_dir}/gaia-hp{tile_id:02d}.fits"
+
+            for P in quad_scales:
+                ss = f"{P:02d}"
+                output_index = f"{self.index_dir}/index-550{ss}-{tile_id:02d}.fits"
+                index_id = f"550{ss}{tile_id:02d}"
+
+                cmd = [
+                    "build-astrometry-index",
+                    "-i", tile_path,
+                    "-s", "2",
+                    "-P", str(P),
+                    "-E",
+                    "-S", "phot_g_mean_mag",
+                    "-o", output_index,
+                    "-I", index_id
+                ]
+
+                print(f"P={P}, Tile={tile_id}: {output_index}")
+                subprocess.run(cmd, check=True)
+
+        print("Tüm index dosyaları oluşturuldu.")
+
+    # -------------------------------------------------
+    # Step 5: solve-field
+    # -------------------------------------------------
+    def solve_with_astrometry(self):
+        print("\nsolve-field çalıştırılıyor...")
+
+        # indexleri ortam değişkenine ekle
+        env = os.environ.copy()
+        env["ASTROMETRY_INDEX_PATH"] = os.path.abspath(self.index_dir)
+
+        cmd = [
+            "solve-field",
+            self.fits_file,
+            "--dir", self.solve_dir,
+            "--scale-units", "arcsecperpix",
+            "--scale-low", str(self.pixel_scale_low),
+            "--scale-high", str(self.pixel_scale_high),
+            "--overwrite",
+            "--no-plots",
+            "--match", "none",
+            "--rdls", "none",
+            "--solved", "none",
+            "--corr", "none",
+            "--no-verify",
+            "--index-xyls", "none",
+            "--axy", "none",
+            "--new-fits", os.path.splitext(self.fits_file)[0]+"_new.fits"
+        ]
+        print("Komut:", " ".join(cmd))
+        subprocess.run(cmd, check=True, env=env)
+
+        print("solve-field tamamlandı!")
+
+    # -------------------------------------------------
+    # RUN ALL PIPELINE
+    # -------------------------------------------------
+    def run(self):
+        self.get_header_coords()
+        self.download_gaia_patch()
+        self.generate_healpix_tiles()
+        self.build_index_files()
+        self.solve_with_astrometry()
+
+# from dynamic_astrometry import DynamicAstrometry
+
+# ast = DynamicAstrometry("bf_2059_0016_V.fits")
+# ast.solve_with_astrometry()
