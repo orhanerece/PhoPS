@@ -1,0 +1,58 @@
+# FITS Header keywords (Customize based on your telescope/camera)
+fits_keywords:
+  ra_key: "RA"
+  dec_key: "DEC"
+  date_key: "DATE-OBS"
+  exposure_key: "EXPTIME"
+
+# Astrometry parameters
+astrometry:
+  radius: 0.5
+  quad_scales: [0, 2, 4, 6]
+  cache_tolerance: 0.1
+
+# Instrument parameters
+instrument:
+  pixel_scale: 0.62
+  gain: 0.57
+  read_noise: 4.11
+  saturation_level: 50000  # ADU value where the sensor becomes non-linear
+
+observatory:
+  observatory_code: "A84"
+
+# DAOStarFinder parameters
+source_detection:
+  fwhm_guess: 3.0          # Initial FWHM guess for DAOStarFinder
+  threshold_sigma: 1     # Threshold for detection (multiplier of background std)
+  min_area: 5              # Minimum connected pixels for a source
+  edge_margin: 30          # Minimum distance from image edges in pixels
+
+# Gaia and target matchhing parameters
+matching:
+  isolation_radius_arcsec: 0.2  # Min distance to the nearest neighbor (arcsec)
+  match_constraint_arcsec: 1.0  # Max distance for Gaia-to-Image matching
+
+# Photometry parameters
+photometry:
+  mode: "asteroid"       # Options: "asteroid" or "star"
+  target_id: "penelope"    # Asteroid number or name. Use if mode is "asteroid"
+  coords: [119.31833333333333, 35.78216666666667] # Use if mode is "star"
+  filter: "R"  # Options: B, V, R, I, g, r, i, z
+  aperture_method: "fixed_arcsec" # Options: "fixed_pixel", "fixed_arcsec", "fwhm_factor"
+  aperture: 4 # Pixel
+  annulus_inner: 7   # Annulus
+  annulus_outer: 10   # Dannulus
+  zeropoint: "fit" #average or fit
+
+# Directories
+paths:
+  input_dir: "20260220/test_peno"
+  temp_dir: "data/temp"
+  index_dir: "data/indexes"
+  solve_dir: "output"
+  file_name: "x.csv" # File name which will be saved as outputs
+
+# Catalog settings
+catalog: "gaiadr3.gaia_source"
+
