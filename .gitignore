@@ -2,3 +2,9 @@ __pycache__/
 *.pyc
 .DS_Store
 *.fits
+.idea/
+*.png
+*.csv
+phops_venv/
+output/
+data/
