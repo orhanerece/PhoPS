@@ -66,8 +66,6 @@ class TargetManager:
                 ra = float(eph['RA'][0])
                 dec = float(eph['DEC'][0])
                 lighttime =  obj.ephemerides()["lighttime"][0] / 60 / 24
-                for i in eph:
-                    print(i)
                 return ra, dec, {
                     'r': float(eph['r'][0]),
                     'delta': float(eph['delta'][0]),

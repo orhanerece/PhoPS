@@ -21,17 +21,17 @@ def run_pipeline():
     input_dir = path_cfg.get('input_dir', 'files')
     solve_dir = path_cfg.get('solve_dir', 'output')
     temp_dir = path_cfg.get('temp_dir', 'data/temp')
-    file_name = path_cfg.get('file_name', 'test.csv')
+    output_photometry = path_cfg.get('output_photometry', 'test.csv')
+    output_astrometry = path_cfg.get('output_astrometry', 'residuals.csv')
     file_ext = path_cfg.get('file_extension', 'fits')
 
     # --- 2. ÇIKTI DOSYALARI (Checkpoint Hazırlığı) ---
-    # Fotometri sonuçları için dosya
-    final_photometry_csv = os.path.join(solve_dir, file_name)
-    # Astrometri (tüm yıldızlar) için dosya
-    all_stars_astrometry_csv = os.path.join(solve_dir, "astrometry_all_stars_yayin_dosyasi_star_testx.csv")
+    # Sonuç dosyaları
+    final_photometry_csv = os.path.join(solve_dir, output_photometry)
+    final_astrometry_csv = os.path.join(solve_dir, output_astrometry)
 
     # Temiz bir başlangıç için eski dosyaları silebilirsin (opsiyonel)
-    for f in [final_photometry_csv, all_stars_astrometry_csv]:
+    for f in [final_photometry_csv, final_astrometry_csv]:
         if os.path.exists(f): os.remove(f)
 
     # --- 3. MOTORLARI BAŞLAT ---
@@ -82,7 +82,7 @@ def run_pipeline():
             # Anlık Astrometri Kaydı (Append)
             astrom_df = pd.DataFrame(
                 {'filename': [fname] * len(dra_corr), 'dra_corr': dra_corr, 'ddec': ddec, 'gmag': g_magnitudes})
-            astrom_df.to_csv(all_stars_astrometry_csv, mode='a', header=not os.path.exists(all_stars_astrometry_csv),
+            astrom_df.to_csv(final_astrometry_csv, mode='a', header=not os.path.exists(final_astrometry_csv),
                              index=False)
             print(f"✅ Saved {len(matched_stars)} matched stars.")
         else:
@@ -117,7 +117,10 @@ def run_pipeline():
             }
             if phys:
                 res.update(
-                    {'reduced_mag': target_res['mag_calib'] - 5 * np.log10(phys['r'] * phys['delta']), 'r_au': phys['r'], 'delta_au': phys['delta']})
+                    {'reduced_mag': target_res['mag_calib'] - 5 * np.log10(phys['r'] * phys['delta']),
+                     'r_au': phys['r'],
+                     'delta_au': phys['delta'],
+                     'alpha': phys['alpha']})
 
             # Anlık Fotometri Kaydı (Append)
             pd.DataFrame([res]).to_csv(final_photometry_csv, mode='a', header=not os.path.exists(final_photometry_csv),
@@ -127,7 +130,7 @@ def run_pipeline():
     # --- 5. FİNAL GRAFİK ---
     print(f"\n✨ Processing complete. Reports saved in '{solve_dir}'.")
     if cfg['plots'].get('plot_astrometry', True):
-        plot_astrometry_residuals(all_stars_astrometry_csv, solve_dir)
+        plot_astrometry_residuals(final_astrometry_csv, solve_dir)
 
 
 if __name__ == "__main__":

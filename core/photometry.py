@@ -98,10 +98,9 @@ class Photometry:
 
         if self.plot_image:
             name = os.path.splitext(image_path)[0] + "_sources"
-            print(name)
             plot_photometry_sources(data, image_sources, matched_table, wcs, name, self.plot_image_scale)
 
-        return matched_table, data, image_sources  # image_sources is for plotting only
+        return matched_table, data, image_sources
 
     def transform_gaia_to_filter(self, matched_table):
         """

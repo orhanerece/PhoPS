@@ -51,8 +51,8 @@ paths:
   temp_dir: "data/temp"
   index_dir: "data/indexes"
   solve_dir: "output"
-  #file_name: "penelope_yayin_dosyasi_star_aper3_UCAC4532-045422.csv" # File name which will be saved as outputs
-  file_name: "test.csv" # File name which will be saved as outputs
+  output_photometry: "test.csv" # File name which will be saved as outputs
+  output_astrometry: "residuals.csv" # File name which will be saved as outputs
   file_extension: "fits" # File name which will be saved as outputs
 
 plots:
