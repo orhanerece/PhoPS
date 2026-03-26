@@ -73,8 +73,9 @@ def run_pipeline():
             solver._prepare_gaia_index(ra_img, dec_img, override_patch_path=gaia_patch)
 
         # ADIM D: Yıldız Eşleştirme ve Astrometri Kaydı
-        matched_stars, _, all_detected = photometry.get_clean_gaia_matches(solved_fits, gaia_patch)
-
+        matched_stars, all_detected = photometry.get_clean_gaia_matches(solved_fits, gaia_patch)
+        for i in all_detected:
+            print(i)
         if matched_stars is not None and len(matched_stars) >= 5:
             # Astrometrik farkları hesapla
             dra_corr, ddec, g_magnitudes = calculate_residuals(matched_stars)  # Yardımcı fonksiyon aşağıda

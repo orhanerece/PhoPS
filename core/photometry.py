@@ -100,7 +100,7 @@ class Photometry:
             name = os.path.splitext(image_path)[0] + "_sources"
             plot_photometry_sources(data, image_sources, matched_table, wcs, name, self.plot_image_scale)
 
-        return matched_table, data, image_sources
+        return matched_table, image_sources
 
     def transform_gaia_to_filter(self, matched_table):
         """

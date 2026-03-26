@@ -108,7 +108,7 @@ def plot_astrometry_residuals(csv_path, solve_dir, telescope_name="TUG100"):
     # 12. Kayıt ve Temizlik
     save_name = os.path.join(solve_dir, f"MASTER_astrometry_final_son_centroidquadraticx.png")
     plt.savefig(save_name, dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()
     plt.close()
 
     print(f"✅ Astrometric residuals plot saved: {save_name}")
@@ -221,7 +221,7 @@ def plot_astrometry_magnitude_density(csv_path, solve_dir, telescope_name="TUG10
 
     save_name = os.path.join(solve_dir, "MASTER_astrometry_by_mag_3panel.png")
     plt.savefig(save_name, dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()
     plt.close()
 
 
