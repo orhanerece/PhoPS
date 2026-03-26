@@ -1,7 +1,7 @@
 # FITS Header keywords (Customize based on your telescope/camera)
 fits_keywords:
-  ra_key: "RA"
-  dec_key: "DEC"
+  ra_key: "OBJCTRA"
+  dec_key: "OBJCTDEC"
   date_key: "DATE-OBS"
   exposure_key: "EXPTIME"
 
@@ -23,10 +23,10 @@ observatory:
 
 # DAOStarFinder parameters
 source_detection:
-  fwhm_guess: 3.0          # Initial FWHM guess for DAOStarFinder
-  threshold_sigma: 1     # Threshold for detection (multiplier of background std)
+  fwhm_guess: 5.0          # Initial FWHM guess for DAOStarFinder
+  threshold_sigma: 1.3    # Threshold for detection (multiplier of background std)
   min_area: 5              # Minimum connected pixels for a source
-  edge_margin: 30          # Minimum distance from image edges in pixels
+  edge_margin: 10          # Minimum distance from image edges in pixels
 
 # Gaia and target matchhing parameters
 matching:
@@ -36,22 +36,29 @@ matching:
 # Photometry parameters
 photometry:
   mode: "asteroid"       # Options: "asteroid" or "star"
-  target_id: "penelope"    # Asteroid number or name. Use if mode is "asteroid"
-  coords: [119.31833333333333, 35.78216666666667] # Use if mode is "star"
+  target_id: "19184"    # Asteroid number or name. Use if mode is "asteroid"
+  coords: [124.756279, 16.294038] # Use if mode is "star" type in degrees
   filter: "R"  # Options: B, V, R, I, g, r, i, z
   aperture_method: "fixed_arcsec" # Options: "fixed_pixel", "fixed_arcsec", "fwhm_factor"
   aperture: 4 # Pixel
   annulus_inner: 7   # Annulus
-  annulus_outer: 10   # Dannulus
+  annulus_outer: 9   # Dannulus
   zeropoint: "fit" #average or fit
 
 # Directories
 paths:
-  input_dir: "20260220/test_peno"
+  input_dir: "A" #"20260223/test_peno2/test"
   temp_dir: "data/temp"
   index_dir: "data/indexes"
   solve_dir: "output"
-  file_name: "x.csv" # File name which will be saved as outputs
+  #file_name: "penelope_yayin_dosyasi_star_aper3_UCAC4532-045422.csv" # File name which will be saved as outputs
+  file_name: "test.csv" # File name which will be saved as outputs
+  file_extension: "fits" # File name which will be saved as outputs
+
+plots:
+  plot_astrometry: True #True or False
+  plot_image: True #True or False
+  image_scale: "wcs" #if plot image is true, use this image scale if pixel or wcs
 
 # Catalog settings
 catalog: "gaiadr3.gaia_source"

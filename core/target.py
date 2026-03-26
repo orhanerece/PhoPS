@@ -15,15 +15,18 @@ class TargetManager:
         exposure_key = self.cfg.get('fits_keywords', {}).get('exposure_key', 'EXPTIME')
         raw_time = header.get(date_key)
         exp_time = header.get(exposure_key)
+        jd_time = header.get("JD")
 
         if raw_time is None:
-            raise ValueError(f"❌ FITS Header içinde '{date_key}' anahtarı bulunamadı!")
-
+            raise ValueError(f"❌ Keyword '{date_key}' not found in the FITS header.")
+        elif jd_time is None:
+            raise ValueError("❌ JD keyword not found in the FITS header.")
         try:
             # Eğer zaten sayısal (int/float) bir JD ise
             if isinstance(raw_time, (int, float)):
                 return float(raw_time)
-
+            elif isinstance(jd_time, (int, float)):
+                return float(jd_time)
             # Eğer string ise (ISO formatı vb.)
             # Önce sayıya dönmeyi dener (bazı headerlarda JD string olarak saklanabilir '2460264.5')
             try:
@@ -34,7 +37,7 @@ class TargetManager:
                 return t.jd + exp_time * 0.00000578703
 
         except Exception as e:
-            raise ValueError(f"❌ Zaman dönüşüm hatası ({raw_time}): {str(e)}")
+            raise ValueError(f"❌ Time conversion error ({raw_time}): {str(e)}")
 
     def get_target_coordinates(self, header):
         """
@@ -54,7 +57,7 @@ class TargetManager:
             jd_value = self.get_jd_time(header)
 
             location = self.cfg.get('observatory', {}).get('observatory_code', '500')
-            print(f"☄️ JPL Horizons sorgulanıyor | JD: {jd_value:.6f}")
+            print(f"☄️ Querying JPL Horizons | JD: {jd_value:.6f}")
 
             try:
                 obj = Horizons(id=str(target_id), location=location, epochs=jd_value)
@@ -70,5 +73,5 @@ class TargetManager:
                     'jd': jd_value - lighttime
                 }
             except Exception as e:
-                print(f"❌ JPL Sorgu Hatası: {e}")
+                print(f"❌ JPL query error: {e}")
                 return None, None, None

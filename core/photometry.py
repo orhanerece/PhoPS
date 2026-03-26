@@ -6,10 +6,11 @@ from astropy.coordinates import SkyCoord
 from astropy import units as u
 from photutils.detection import DAOStarFinder
 from photutils.aperture import CircularAperture, CircularAnnulus, aperture_photometry
-from photutils.centroids import centroid_com, centroid_quadratic
+from photutils.centroids import centroid_quadratic
 from sklearn.linear_model import RANSACRegressor
 import matplotlib.pyplot as plt
-
+from core.utils import plot_photometry_sources
+import os
 
 class Photometry:
     def __init__(self, config):
@@ -26,6 +27,10 @@ class Photometry:
         self.iso_radius = self.cfg['matching'].get('isolation_radius_arcsec', 2.0)
         self.match_dist = self.cfg['matching'].get('match_constraint_arcsec', 1.0)
 
+        #Plot
+        self.plot_image = self.cfg['plots'].get('plot_image', True)
+        self.plot_image_scale = self.cfg['plots'].get('image_scale', "pixel")
+
     def get_clean_gaia_matches(self, image_path, gaia_catalog_path):
         """
         Main workflow: Detects, filters for quality, and matches with Gaia.
@@ -39,7 +44,7 @@ class Photometry:
         # 1. Detection
         std = np.median(data)
         median = np.median(data)
-        finder = DAOStarFinder(fwhm=self.fwhm_guess, threshold=std*threshold, exclude_border=True,)
+        finder = DAOStarFinder(fwhm=self.fwhm_guess, threshold=std * threshold, exclude_border=True, )
         image_sources = finder(data - median)
 
         if image_sources is None:
@@ -84,43 +89,18 @@ class Photometry:
         matched_table['gaia_dec'] = gaia_table['dec'][idx[match_mask]]
         matched_table['gaia_gmag'] = gaia_table['phot_g_mean_mag'][idx[match_mask]]
         matched_table['bp_rp'] = gaia_table['bp_rp'][idx[match_mask]]
+        matched_table['pm_ra'] = gaia_table['pmra'][idx[match_mask]]
+        matched_table['pm_dec'] = gaia_table['pmdec'][idx[match_mask]]
 
         # Calculate r_dist for Zeropoint(r)
         matched_table['r_dist'] = np.sqrt((matched_table['xcentroid'] - nx / 2) ** 2 +
                                           (matched_table['ycentroid'] - ny / 2) ** 2)
 
-        import matplotlib.pyplot as plt
+        if self.plot_image:
+            name = os.path.splitext(image_path)[0] + "_sources"
+            print(name)
+            plot_photometry_sources(data, image_sources, matched_table, wcs, name, self.plot_image_scale)
 
-        # ... fonksiyonun sonuna, return'den hemen önce ekle ...
-
-        plt.figure(figsize=(12, 12))
-
-        # Görüntüyü arka plan olarak çiz
-        # vmin ve vmax değerlerini (median-std) ve (median+5*std) yaparak yıldızları daha belirgin kılabilirsin
-        vmin, vmax = np.percentile(data, [50, 99])  # Daha stabil bir kontrast için percentile kullandık
-
-        plt.imshow(data, cmap='gray', origin='lower',
-                   vmin=vmin,
-                   vmax=vmax)
-
-        # 1. Görüntüde bulunan TÜM kaynakları çiz (Mavi küçük noktalar)
-        plt.scatter(image_sources['xcentroid'], image_sources['ycentroid'],
-                    edgecolor='blue', facecolor='none', s=20, alpha=0.5, label='Tespit Edilen Tüm Kaynaklar')
-
-        # 2. Gaia ile EŞLEŞEN temiz kaynakları çiz (Kırmızı büyük halkalar)
-        plt.scatter(matched_table['xcentroid'], matched_table['ycentroid'],
-                    edgecolor='red', facecolor='none', s=100, lw=1.5, label='Gaia ile Eşleşen Temiz Kaynaklar')
-
-        plt.title(f"Kaynak Analizi: {len(image_sources)} Tespit / {len(matched_table)} Gaia Eşleşmesi")
-        plt.xlabel("X (pixel)")
-        plt.ylabel("Y (pixel)")
-        plt.legend(loc='upper right')
-
-        # İstersen bu grafiği kaydetmesi için:
-        plt.savefig("matching_test_result.png", dpi=300)
-        plt.close()
-
-        # plt.show()
         return matched_table, data, image_sources  # image_sources is for plotting only
 
     def transform_gaia_to_filter(self, matched_table):
@@ -170,8 +150,8 @@ class Photometry:
 
     def perform_aperture_photometry(self, data, matched_table, image_sources):
         """
-        Step 4: Görüntüdeki referans yıldızlar için hassas merkezleme ve
-        aperture fotometrisi. calculate_radii fonksiyonunu kullanır.
+        Step 4: Precise centroiding and aperture photometry of reference stars
+        in the image. Uses the calculate_radii function.
         """
         # 1. Görüntünün genel medyan FWHM değerini hesapla
         if 'fwhm' in image_sources.colnames:
@@ -215,7 +195,7 @@ class Photometry:
         refined_positions = np.array(refined_positions)
         nan_mask = np.isnan(refined_positions).any(axis=1)
         if np.any(nan_mask):
-            print(f"⚠️ {np.sum(nan_mask)} yıldızda merkezleme hatası (NaN) saptandı, eleniyor.")
+            print(f"⚠️ Centroiding failure (NaN) detected for {np.sum(nan_mask)} stars; removing them.")
             # Hem pozisyonları hem de tablodaki karşılıklarını temizle
             refined_positions = refined_positions[~nan_mask]
             matched_table = matched_table[~nan_mask]
@@ -278,7 +258,7 @@ class Photometry:
         r_dist = r_dist[valid_mask]
 
         if len(mag_diff) < 4:
-            print("⚠️ Zeropoint için yeterli geçerli yıldız kalmadı.")
+            print("⚠️ Insufficient valid stars for zeropoint calculation.")
             # Güvenli bir fallback (boş model dönebiliriz)
             return np.poly1d([0, 25.0]), 0, 0
 
@@ -290,7 +270,7 @@ class Photometry:
 
         # 2. RANSAC Regression
         # residual_threshold: 0.15 mag limit for being an inlier
-        ransac = RANSACRegressor(residual_threshold=0.15, random_state=42)
+        ransac = RANSACRegressor(residual_threshold=0.1, random_state=100)
         ransac.fit(X, y)
 
         inlier_mask = ransac.inlier_mask_
@@ -302,7 +282,7 @@ class Photometry:
         intercept = ransac.estimator_.intercept_[0]
         zp_function = np.poly1d([slope, intercept])
 
-        # Calculate RMS error for inliers
+        # Calculate stddev for inliers
         rms_error = np.std(y[inlier_mask] - zp_function(X[inlier_mask]))
 
         print(f"✅ Zeropoint Calibration: ZP(r) = {slope:.6f}*r + {intercept:.4f}")
@@ -311,23 +291,25 @@ class Photometry:
         # 4. Plotting
         if plot:
             plt.figure(figsize=(10, 6))
-            plt.scatter(r_dist[inlier_mask], mag_diff[inlier_mask], color='blue', alpha=0.6, label='Inliers')
-            plt.scatter(r_dist[outlier_mask], mag_diff[outlier_mask], color='red', alpha=0.3, label='Outliers')
+            plt.scatter(r_dist[inlier_mask], mag_diff[inlier_mask], color='blue', alpha=0.6,
+                        label=f'Inliers ({len(mag_diff[inlier_mask])})')
+            plt.scatter(r_dist[outlier_mask], mag_diff[outlier_mask], color='red', alpha=0.3,
+                        label=f'Outliers ({len(mag_diff[outlier_mask])})')
 
             # Plot the model line
             r_range = np.linspace(0, np.max(r_dist), 100)
             plt.plot(r_range, zp_function(r_range), color='black', linestyle='--', label=f'Model (Slope: {slope:.6f})')
 
-            plt.xlabel("Distance from Image Center (pixels)")
-            plt.ylabel("Standard - Instrumental Mag (ZP)")
-            plt.title("RANSAC Field-Dependent Zeropoint")
+            plt.xlabel("Distance from image center (pixels)")
+            plt.ylabel("Transformed Gaia Mag. - Instrumental Mag. ($\Delta m$)")
+            # plt.title("RANSAC Field-Dependent Zeropoint")
             plt.legend()
-            plt.grid(True, alpha=0.3)
+            # plt.grid(True, alpha=0.3)
 
             if save_plot and output_path:
-                plt.savefig(output_path.replace('.fits', '_zp.png'))
-            plt.close()
-            plt.show()
+                plt.savefig(output_path.replace('.fits', '_zptest.png'), format='png', bbox_inches='tight', dpi=300)
+                # plt.show()
+                plt.close()
 
         return zp_function, rms_error, slope, np.average(mag_diff[inlier_mask])
 
@@ -405,11 +387,12 @@ class Photometry:
             safe_fname = str(filename).replace('.fits', '').replace('.', '_')
             save_path = os.path.join(output_dir, f"cutout_{safe_fname}.png")  # Uzantıyı sona ekle
 
-            plt.savefig(save_path, format='png', bbox_inches='tight', dpi=100)
+            plt.savefig(save_path, format='png', bbox_inches='tight', dpi=300)
             plt.close(fig)
 
         except Exception as e:
-            print(f"⚠️ Cutout kaydedilemedi ({filename}): {e}")
+            print(f"⚠️ Failed to save cutout ({filename}): {e}")
+
     def measure_target(self, data, wcs, ra, dec, zp_function, median_fwhm, all_detected, filename, zp_average):
         """
         Hedef cismin (Asteroid/Yıldız) koordinatlarını bulur ve
@@ -422,15 +405,15 @@ class Photometry:
             iso_px = self.iso_radius / self.pxscale
             all_coords = np.transpose((all_detected['xcentroid'], all_detected['ycentroid']))
             dists = np.sqrt(np.sum((all_coords - [x_target, y_target]) ** 2, axis=1))
-            nearby_mask = (dists < iso_px+50)
+            nearby_mask = (dists < iso_px)
             nearby_count = np.sum(nearby_mask)
             nearby_sources = all_detected[nearby_mask]
 
             if nearby_count > 1:
                 neighbor_ids = nearby_sources['id'] if 'id' in nearby_sources.colnames else "N/A"
 
-                print(f"⚠️ Hedef izole değil! {iso_px:.1f} px içinde {nearby_count} komşu var.")
-                print(f"🚫 Yakın kaynak ID(ler)i: {neighbor_ids}")
+                print(f"⚠️ Target failed the isolation criterion: {nearby_count} neighbors within {iso_px:.1f} px.")
+                print(f"🚫 Nearby source ID(s): {neighbor_ids}")
 
                 return None
             elif nearby_count == 1:

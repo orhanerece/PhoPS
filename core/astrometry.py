@@ -56,65 +56,129 @@ class AstrometrySolver:
         return False
 
     def _prepare_gaia_index(self, ra, dec, override_patch_path=None):
-        """Query Gaia catalog, split into HEALPix tiles, and build index files."""
 
-        # Area suffix'i belirle (Hala index dosyaları için lazım)
         area_suffix = f"{int(ra)}_{int(dec)}"
         print(f"🔭 New area detected. Generating indexes: RA={ra:.3f}, Dec={dec:.3f}")
 
-        # 1. Gaia Query
         radius = self.cfg['astrometry']['radius']
+
         query = f"""
-        SELECT source_id, ra, dec, pmra, pmdec, phot_g_mean_mag, bp_rp
+        SELECT source_id, ra, dec, pmra, pmdec, phot_g_mean_mag, bp_rp, parallax
         FROM {self.cfg['catalog']}
-        WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra}, {dec}, {radius})) = 1
+        WHERE CONTAINS(POINT('ICRS', ra, dec),
+                       CIRCLE('ICRS', {ra}, {dec}, {radius})) = 1
         ORDER BY phot_g_mean_mag
         """
+
         job = Gaia.launch_job_async(query)
         data = job.get_results()
 
-        # --- KRİTİK DÜZELTME BURASI ---
-        # Eğer dışarıdan bir yol (main.py'den) gelmişse onu kullan
+        import numpy as np
+        from astropy.coordinates import SkyCoord
+        from astropy.time import Time
+        import astropy.units as u
+
+        # -----------------------------
+        # Güvenli maske
+        # -----------------------------
+        mask = (
+                ~data['pmra'].mask &
+                ~data['pmdec'].mask &
+                ~data['parallax'].mask
+        )
+
+        data = data[mask]
+
+        parallax = np.array(data['parallax'])
+
+        # Çok küçük / negatif parallax'ları çıkar
+        valid = (parallax > 0.1) & np.isfinite(parallax)
+        data = data[valid]
+        parallax = parallax[valid]
+
+        print(f"🔄 Propagating {len(data)} stars to epoch 2026.23")
+
+        # -----------------------------
+        # Distance (doğru fizik)
+        # -----------------------------
+        distance = (parallax * u.mas).to(u.pc, equivalencies=u.parallax())
+
+        # -----------------------------
+        # Gaia referans epoch
+        # -----------------------------
+        gaia_epoch = Time(2016.0, format='jyear', scale='tdb')
+        obs_time = Time(2007.53457, format='jyear', scale='tdb')
+
+        c = SkyCoord(
+            ra=np.array(data['ra']) * u.deg,
+            dec=np.array(data['dec']) * u.deg,
+            pm_ra_cosdec=np.array(data['pmra']) * u.mas / u.yr,
+            pm_dec=np.array(data['pmdec']) * u.mas / u.yr,
+            distance=distance,
+            obstime=gaia_epoch
+        )
+
+        c_prop = c.apply_space_motion(new_obstime=obs_time)
+
+        data['ra'] = c_prop.ra.deg
+        data['dec'] = c_prop.dec.deg
+
+        data = data[np.isfinite(data['ra']) & np.isfinite(data['dec'])]
+
+        # -----------------------------
+        # Yaz & index üret
+        # -----------------------------
         if override_patch_path:
             patch_path = override_patch_path
         else:
-            patch_path = os.path.join(self.cfg['paths']['temp_dir'], f"gaia_patch_{area_suffix}.fits")
+            patch_path = os.path.join(
+                self.cfg['paths']['temp_dir'],
+                f"gaia_reference_{area_suffix}.fits"
+            )
 
         data.write(patch_path, overwrite=True)
 
-        # 2. HPSplit (HEALPix bölme işlemi)
-        # hpsplit geçici dosyaları için de unique bir isim şablonu kullanalım
-        hp_out = os.path.join(self.cfg['paths']['temp_dir'], f"gaia-hp%02i_{area_suffix}.fits")
+        hp_out = os.path.join(
+            self.cfg['paths']['temp_dir'],
+            f"gaia-hp%02i_{area_suffix}.fits"
+        )
+
         subprocess.run(["hpsplit", "-o", hp_out, "-n", "2", patch_path], check=True)
 
-        # 3. Build-Index Loop
-        tile_files = sorted([f for f in os.listdir(self.cfg['paths']['temp_dir'])
-                             if f.startswith("gaia-hp") and f.endswith(f"_{area_suffix}.fits")])
+        tile_files = sorted([
+            f for f in os.listdir(self.cfg['paths']['temp_dir'])
+            if f.startswith("gaia-hp") and f.endswith(f"_{area_suffix}.fits")
+        ])
 
         for tile_f in tile_files:
-            # Örn: gaia-hp01_316_8.fits -> tile_id_str = "01"
+
             tile_id_str = tile_f.split("gaia-hp")[1].split("_")[0]
             tile_path = os.path.join(self.cfg['paths']['temp_dir'], tile_f)
 
             for p in self.cfg['astrometry']['quad_scales']:
-                output_index = os.path.join(self.cfg['paths']['index_dir'],
-                                            f"index-550{p:02d}-{tile_id_str}_{area_suffix}.fits")
+                output_index = os.path.join(
+                    self.cfg['paths']['index_dir'],
+                    f"index-550{p:02d}-{tile_id_str}_{area_suffix}.fits"
+                )
 
-                # Index ID'nin benzersiz olması için sonuna koordinat bilgisinden bir parça ekliyoruz
                 index_id = f"550{p:02d}{tile_id_str}{abs(int(ra))}"
 
                 subprocess.run([
-                    "build-astrometry-index", "-i", tile_path, "-s", "2",
-                    "-P", str(p), "-E", "-S", "phot_g_mean_mag",
-                    "-o", output_index, "-I", index_id
+                    "build-astrometry-index",
+                    "-i", tile_path,
+                    "-s", "2",
+                    "-P", str(p),
+                    "-E",
+                    "-S", "phot_g_mean_mag",
+                    "-o", output_index,
+                    "-I", index_id
                 ], check=True, stdout=subprocess.DEVNULL)
 
-        # 4. Geçici HEALPix tile dosyalarını temizle (Ana patch dosyasını match işlemi için tutuyoruz)
         for tile_f in tile_files:
             os.remove(os.path.join(self.cfg['paths']['temp_dir'], tile_f))
 
         self._add_key(ra, dec)
-        return patch_path  # Yeni oluşturulan patch yolunu dönebilirsin
+        return patch_path
 
     def solve(self, image_path):
         """Main method to perform plate solving and clean up auxiliary files."""
