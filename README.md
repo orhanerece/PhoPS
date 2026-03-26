@@ -1,2 +1,2 @@
-# Phops
-Photometry and astrometry of point sources
+# PhoPS
+Photometry and astrometry of Point Sources
