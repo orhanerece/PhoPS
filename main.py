@@ -104,21 +104,25 @@ def run_pipeline():
             res = {
                 'filename': fname,
                 'jd': phys['jd'] if phys else target_mgr.get_jd_time(header),
-                'mag': target_res['mag'],
-                'mag_err': target_res['err'],
+                'mag_inst': target_res['mag_inst'],
+                'mag_calib': target_res['mag_calib'],
                 'snr': target_res['snr'],
+                'mag_err': target_res['err'],
+                'x_target': target_res['x'],
+                'y_target': target_res['y'],
+                'bg': target_res['BG'],
                 'zp': target_res['zp'],
                 'zp_scatter': zp_scatter,
                 'fwhm': median_fwhm
             }
             if phys:
                 res.update(
-                    {'r_au': phys['r'], 'reduced_mag': target_res['mag'] - 5 * np.log10(phys['r'] * phys['delta'])})
+                    {'reduced_mag': target_res['mag_calib'] - 5 * np.log10(phys['r'] * phys['delta']), 'r_au': phys['r'], 'delta_au': phys['delta']})
 
             # Anlık Fotometri Kaydı (Append)
             pd.DataFrame([res]).to_csv(final_photometry_csv, mode='a', header=not os.path.exists(final_photometry_csv),
                                        index=False)
-            print(f"🎯 Target magnitude measured: {target_res['mag']:.3f} mag")
+            print(f"🎯 Target magnitude measured: {target_res['mag_calib']:.3f} mag")
             break
     # --- 5. FİNAL GRAFİK ---
     print(f"\n✨ Processing complete. Reports saved in '{solve_dir}'.")

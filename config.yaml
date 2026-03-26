@@ -58,7 +58,7 @@ paths:
 plots:
   plot_astrometry: True #True or False
   plot_image: True #True or False
-  image_scale: "wcs" #if plot image is true, use this image scale if pixel or wcs
+  image_scale: "pixel" # pixel or wcs. Use this if plot image is true
 
 # Catalog settings
 catalog: "gaiadr3.gaia_source"

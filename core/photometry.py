@@ -483,7 +483,8 @@ class Photometry:
         return {
             'ra': ra, 'dec': dec,
             'x': x_precise, 'y': y_precise,
-            'inst_mag': inst_mag, 'zp': target_zp,
-            'mag': final_mag, 'err': mag_err,
-            'snr': net_flux / noise
+            'mag_inst': inst_mag, 'zp': target_zp,
+            'mag_calib': final_mag, 'err': mag_err,
+            'snr': net_flux / noise,
+            'BG': bkg_median
         }
