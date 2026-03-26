@@ -1,2 +1,2 @@
-# Phops_article_version
-Phops
+# Phops
+Photometry and astrometry of point sources
