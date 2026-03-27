@@ -4,6 +4,10 @@
   <img src="docs/assets/phops-logo.png" alt="PhoPS logo" width="320">
 </p>
 
+<p align="center">
+  <strong>Photometric Pipeline for Surveys</strong>
+</p>
+
 PhoPS is a Python package for point-source photometry and astrometry on FITS images. The repository is now structured as an installable package with a shared service layer, a CLI, and a desktop UI adapter layer that can support a future Qt frontend.
 
 ## What It Provides
