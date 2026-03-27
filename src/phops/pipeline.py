@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-import json
 from pathlib import Path
-from typing import Iterable
 
-from astropy.io import fits
-from astropy.wcs import WCS
 import numpy as np
 import pandas as pd
+from astropy.io import fits
+from astropy.wcs import WCS
 
 from .astrometry import AstrometrySolver
 from .config import AppConfig, load_config
@@ -152,10 +152,9 @@ def inspect_existing_run(config: AppConfig) -> ExistingRunState:
 
     input_files = iter_input_files(config.paths.input_dir, config.paths.file_extension)
     input_names = {path.name for path in input_files}
-    completed_frames = (
-        _load_checkpoint_frames(config.paths.run_state_path, config.paths.input_dir)
-        | _read_completed_frames_from_photometry(config.paths.photometry_csv_path)
-    )
+    completed_frames = _load_checkpoint_frames(
+        config.paths.run_state_path, config.paths.input_dir
+    ) | _read_completed_frames_from_photometry(config.paths.photometry_csv_path)
     completed_frames &= input_names
 
     artifact_paths: list[Path] = []
@@ -190,10 +189,7 @@ def build_run_summary_items(
         target_value = f"{config.photometry.target_id} | filter={config.photometry.filter}"
     else:
         coords = config.photometry.coords or (0.0, 0.0)
-        target_value = (
-            f"RA={coords[0]:.6f} deg Dec={coords[1]:.6f} deg | "
-            f"filter={config.photometry.filter}"
-        )
+        target_value = f"RA={coords[0]:.6f} deg Dec={coords[1]:.6f} deg | filter={config.photometry.filter}"
 
     enabled_plots: list[str] = []
     if config.plots.plot_astrometry:
@@ -204,7 +200,10 @@ def build_run_summary_items(
         enabled_plots.append("light-curve")
     plot_modes = ", ".join(enabled_plots) if enabled_plots else "disabled"
 
-    input_value = f"{config.paths.input_dir} ({existing_state.total_input_files if existing_state else total_files} *.{config.paths.file_extension} files)"
+    total_input_files = existing_state.total_input_files if existing_state else total_files
+    input_value = (
+        f"{config.paths.input_dir} ({total_input_files} *.{config.paths.file_extension} files)"
+    )
     if existing_state is not None and not overwrite:
         input_value += f" | {len(existing_state.completed_frames)} completed | {total_files} pending"
 
@@ -222,7 +221,13 @@ def build_run_summary_items(
         ("Overwrite", "yes" if overwrite else "no"),
     ]
     if existing_state is not None and not overwrite:
-        items.insert(5, ("Resume state", f"{len(existing_state.completed_frames)} completed | {total_files} pending"))
+        items.insert(
+            5,
+            (
+                "Resume state",
+                f"{len(existing_state.completed_frames)} completed | {total_files} pending",
+            ),
+        )
     return items
 
 
@@ -261,8 +266,7 @@ class PipelineRunner:
         input_files = iter_input_files(self.config.paths.input_dir, self.config.paths.file_extension)
         if not input_files:
             raise PipelineError(
-                f"No input files with extension '.{self.config.paths.file_extension}' were found in "
-                f"{self.config.paths.input_dir}."
+                f"No input files with extension '.{self.config.paths.file_extension}' were found in {self.config.paths.input_dir}."
             )
 
         photometry_csv = self.config.paths.photometry_csv_path
@@ -276,9 +280,7 @@ class PipelineRunner:
             run_state_path.unlink(missing_ok=True)
         elif resume:
             completed_frames = _deduplicate_photometry_csv(photometry_csv)
-            completed_frames |= (
-                _load_checkpoint_frames(run_state_path, self.config.paths.input_dir) & {path.name for path in input_files}
-            )
+            completed_frames |= _load_checkpoint_frames(run_state_path, self.config.paths.input_dir) & {path.name for path in input_files}
             _prune_astrometry_csv(astrometry_csv, completed_frames)
             _write_run_state(run_state_path, self.config.paths.input_dir, completed_frames)
 
@@ -385,7 +387,12 @@ class PipelineRunner:
 
                 dra_corr, ddec, gmag = calculate_residuals(matched_stars)
                 astrometry_rows = [
-                    {"filename": image_path.name, "dra_corr": dra_item, "ddec": ddec_item, "gmag": gmag_item}
+                    {
+                        "filename": image_path.name,
+                        "dra_corr": dra_item,
+                        "ddec": ddec_item,
+                        "gmag": gmag_item,
+                    }
                     for dra_item, ddec_item, gmag_item in zip(dra_corr, ddec, gmag)
                 ]
                 append_rows_to_csv(astrometry_csv, astrometry_rows)
@@ -529,10 +536,7 @@ class PipelineRunner:
         report(
             self.reporter,
             "info",
-            (
-                f"Completed run: total={len(files_to_process)} solved={solved_files} "
-                f"measured={measured_files} skipped={skipped_files}"
-            ),
+            (f"Completed run: total={len(files_to_process)} solved={solved_files} measured={measured_files} skipped={skipped_files}"),
             stage="pipeline",
             event="run_complete",
             total_files=len(files_to_process),

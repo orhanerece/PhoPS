@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from astropy.coordinates import SkyCoord
-from astropy import units as u
 import yaml
+from astropy import units as u
+from astropy.coordinates import SkyCoord
 
 from .errors import ConfigurationError
 
@@ -52,13 +52,9 @@ def _parse_coords(raw_coords: Any, coords_unit: str) -> tuple[float, float] | No
         if isinstance(raw_coords, (list, tuple)) and len(raw_coords) == 2:
             coord = SkyCoord(raw_coords[0], raw_coords[1], unit=unit, frame="icrs")
             return float(coord.ra.deg), float(coord.dec.deg)
-        raise ConfigurationError(
-            "'photometry.coords' must be either a two-item sequence or a single coordinate string."
-        )
+        raise ConfigurationError("'photometry.coords' must be either a two-item sequence or a single coordinate string.")
     except ValueError as exc:
-        raise ConfigurationError(
-            "Could not parse 'photometry.coords' using the declared 'photometry.coords_unit'."
-        ) from exc
+        raise ConfigurationError("Could not parse 'photometry.coords' using the declared 'photometry.coords_unit'.") from exc
 
 
 def _parse_optional_float_pair(section: str, value: Any) -> tuple[float, float] | None:
@@ -81,7 +77,7 @@ class FitsKeywordsConfig:
     jd_key: str = "JD"
 
     @classmethod
-    def from_mapping(cls, mapping: dict[str, Any]) -> "FitsKeywordsConfig":
+    def from_mapping(cls, mapping: dict[str, Any]) -> FitsKeywordsConfig:
         return cls(
             ra_key=str(mapping.get("ra_key", "RA")),
             dec_key=str(mapping.get("dec_key", "DEC")),
@@ -100,7 +96,7 @@ class AstrometryConfig:
     epoch_bucket_precision: int = 1
 
     @classmethod
-    def from_mapping(cls, mapping: dict[str, Any]) -> "AstrometryConfig":
+    def from_mapping(cls, mapping: dict[str, Any]) -> AstrometryConfig:
         raw_scales = mapping.get("quad_scales", [0, 2, 4, 6])
         return cls(
             solve_mode=str(mapping.get("solve_mode", "solve")),
@@ -123,7 +119,7 @@ class InstrumentConfig:
     saturation_level: float = 60000.0
 
     @classmethod
-    def from_mapping(cls, mapping: dict[str, Any]) -> "InstrumentConfig":
+    def from_mapping(cls, mapping: dict[str, Any]) -> InstrumentConfig:
         try:
             return cls(
                 pixel_scale=float(mapping["pixel_scale"]),
@@ -140,7 +136,7 @@ class ObservatoryConfig:
     observatory_code: str = "500"
 
     @classmethod
-    def from_mapping(cls, mapping: dict[str, Any]) -> "ObservatoryConfig":
+    def from_mapping(cls, mapping: dict[str, Any]) -> ObservatoryConfig:
         return cls(observatory_code=str(mapping.get("observatory_code", "500")))
 
 
@@ -152,7 +148,7 @@ class SourceDetectionConfig:
     edge_margin: int = 10
 
     @classmethod
-    def from_mapping(cls, mapping: dict[str, Any]) -> "SourceDetectionConfig":
+    def from_mapping(cls, mapping: dict[str, Any]) -> SourceDetectionConfig:
         return cls(
             fwhm_guess=float(mapping.get("fwhm_guess", 5.0)),
             threshold_sigma=float(mapping.get("threshold_sigma", 3.0)),
@@ -167,7 +163,7 @@ class MatchingConfig:
     match_constraint_arcsec: float = 1.0
 
     @classmethod
-    def from_mapping(cls, mapping: dict[str, Any]) -> "MatchingConfig":
+    def from_mapping(cls, mapping: dict[str, Any]) -> MatchingConfig:
         return cls(
             isolation_radius_arcsec=float(mapping.get("isolation_radius_arcsec", 0.2)),
             match_constraint_arcsec=float(mapping.get("match_constraint_arcsec", 1.0)),
@@ -188,7 +184,7 @@ class PhotometryConfig:
     zeropoint: ZeroPointMode = "fit"
 
     @classmethod
-    def from_mapping(cls, mapping: dict[str, Any]) -> "PhotometryConfig":
+    def from_mapping(cls, mapping: dict[str, Any]) -> PhotometryConfig:
         coords_unit = str(mapping.get("coords_unit", "deg"))
         return cls(
             mode=str(mapping.get("mode", "asteroid")),
@@ -209,9 +205,7 @@ class PhotometryConfig:
         if self.coords_unit not in {"deg", "hourangle_deg"}:
             raise ConfigurationError("'photometry.coords_unit' must be either 'deg' or 'hourangle_deg'.")
         if self.aperture_method not in {"fixed_pixel", "fixed_arcsec", "fwhm_factor"}:
-            raise ConfigurationError(
-                "'photometry.aperture_method' must be one of: fixed_pixel, fixed_arcsec, fwhm_factor."
-            )
+            raise ConfigurationError("'photometry.aperture_method' must be one of: fixed_pixel, fixed_arcsec, fwhm_factor.")
         if self.zeropoint not in {"fit", "average"}:
             raise ConfigurationError("'photometry.zeropoint' must be either 'fit' or 'average'.")
         if self.mode == "asteroid" and not self.target_id:
@@ -234,7 +228,7 @@ class PathsConfig:
     cutout_dir: Path | None = None
 
     @classmethod
-    def from_mapping(cls, mapping: dict[str, Any], base_dir: Path) -> "PathsConfig":
+    def from_mapping(cls, mapping: dict[str, Any], base_dir: Path) -> PathsConfig:
         solve_dir = _resolve_path(base_dir, mapping.get("solve_dir", "output"))
         plot_dir_value = mapping.get("plot_dir")
         cutout_dir_value = mapping.get("cutout_dir")
@@ -282,7 +276,7 @@ class PlotsConfig:
     light_curve_event_unit: LightCurveXAxis = "relative_seconds"
 
     @classmethod
-    def from_mapping(cls, mapping: dict[str, Any]) -> "PlotsConfig":
+    def from_mapping(cls, mapping: dict[str, Any]) -> PlotsConfig:
         return cls(
             plot_astrometry=bool(mapping.get("plot_astrometry", True)),
             plot_image=bool(mapping.get("plot_image", True)),
@@ -324,7 +318,7 @@ class AppConfig:
     catalog: str = "gaiadr3.gaia_source"
 
     @classmethod
-    def from_mapping(cls, mapping: dict[str, Any], source_path: Path) -> "AppConfig":
+    def from_mapping(cls, mapping: dict[str, Any], source_path: Path) -> AppConfig:
         base_dir = source_path.parent.resolve()
         config = cls(
             source_path=source_path.resolve(),
@@ -332,9 +326,7 @@ class AppConfig:
             astrometry=AstrometryConfig.from_mapping(_require_mapping("astrometry", mapping.get("astrometry"))),
             instrument=InstrumentConfig.from_mapping(_require_mapping("instrument", mapping.get("instrument"))),
             observatory=ObservatoryConfig.from_mapping(_require_mapping("observatory", mapping.get("observatory"))),
-            source_detection=SourceDetectionConfig.from_mapping(
-                _require_mapping("source_detection", mapping.get("source_detection"))
-            ),
+            source_detection=SourceDetectionConfig.from_mapping(_require_mapping("source_detection", mapping.get("source_detection"))),
             matching=MatchingConfig.from_mapping(_require_mapping("matching", mapping.get("matching"))),
             photometry=PhotometryConfig.from_mapping(_require_mapping("photometry", mapping.get("photometry"))),
             paths=PathsConfig.from_mapping(_require_mapping("paths", mapping.get("paths")), base_dir=base_dir),
@@ -345,7 +337,7 @@ class AppConfig:
         return config
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "AppConfig":
+    def from_yaml(cls, path: str | Path) -> AppConfig:
         source_path = Path(path).expanduser().resolve()
         if not source_path.exists():
             raise ConfigurationError(f"Configuration file not found: {source_path}")

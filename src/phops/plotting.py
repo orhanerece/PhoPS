@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from pathlib import Path
 import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 
-from astropy.stats import mad_std
 from astropy.nddata import Cutout2D
-from astropy.stats import sigma_clipped_stats
+from astropy.stats import mad_std, sigma_clipped_stats
 from astropy.visualization import simple_norm
-import matplotlib
 
 MPL_DIR = Path(tempfile.gettempdir()) / "phops-mpl"
 MPL_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("MPLCONFIGDIR", str(MPL_DIR))
-matplotlib.use("Agg")
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
@@ -70,7 +68,11 @@ def _light_curve_x_values(df: pd.DataFrame, x_axis: str) -> tuple[np.ndarray, st
     reference_jd = float(np.nanmin(jd_values))
     if x_axis == "jd":
         return jd_values, "Julian Date (UTC mid-exposure)", reference_jd
-    return (jd_values - reference_jd) * 86400.0, f"Time Since Start (s) | JD0={reference_jd:.6f}", reference_jd
+    return (
+        (jd_values - reference_jd) * 86400.0,
+        f"Time Since Start (s) | JD0={reference_jd:.6f}",
+        reference_jd,
+    )
 
 
 def _convert_event_window(
@@ -268,7 +270,12 @@ def plot_photometry_light_curve(
     required_columns = {"jd", "mag_calib", "mag_err"}
     missing = sorted(required_columns - set(df.columns))
     if missing:
-        report(reporter, "warning", f"Photometry CSV is missing required columns: {', '.join(missing)}", stage="plot")
+        report(
+            reporter,
+            "warning",
+            f"Photometry CSV is missing required columns: {', '.join(missing)}",
+            stage="plot",
+        )
         return None
 
     df = df.sort_values("jd").reset_index(drop=True)
@@ -402,7 +409,12 @@ def plot_photometry_light_curve(
             va="bottom",
             fontsize=9,
             color="#243b53",
-            bbox={"facecolor": "white", "edgecolor": "#d2d8de", "boxstyle": "round,pad=0.28", "alpha": 0.92},
+            bbox={
+                "facecolor": "white",
+                "edgecolor": "#d2d8de",
+                "boxstyle": "round,pad=0.28",
+                "alpha": 0.92,
+            },
         )
         main_ax.legend(loc="upper left", fontsize=9)
         main_ax.margins(x=0.015)
@@ -433,7 +445,14 @@ def plot_photometry_light_curve(
                 )
             finite_values = np.isfinite(values)
             if np.any(finite_values):
-                axis.axhline(np.nanmedian(values[finite_values]), color="#8a98a6", lw=0.8, ls="--", alpha=0.7, zorder=0)
+                axis.axhline(
+                    np.nanmedian(values[finite_values]),
+                    color="#8a98a6",
+                    lw=0.8,
+                    ls="--",
+                    alpha=0.7,
+                    zorder=0,
+                )
             axis.set_ylabel(meta["label"], labelpad=10)
             axis.margins(x=0.015)
             _apply_scientific_axis_style(axis)
@@ -473,10 +492,34 @@ def plot_photometry_sources(
         norm = simple_norm(data, stretch="sinh", percent=97.0, min_percent=0.1)
         ax.imshow(data, cmap="viridis", origin="lower", norm=norm)
         transform = ax.get_transform("pixel")
-        ax.scatter(image_sources["xcentroid"], image_sources["ycentroid"], transform=transform, edgecolor="cyan", facecolor="none", s=50, alpha=0.7)
-        ax.scatter(matched_sources["xcentroid"], matched_sources["ycentroid"], transform=transform, edgecolor="red", facecolor="none", s=90, lw=1.3)
+        ax.scatter(
+            image_sources["xcentroid"],
+            image_sources["ycentroid"],
+            transform=transform,
+            edgecolor="cyan",
+            facecolor="none",
+            s=50,
+            alpha=0.7,
+        )
+        ax.scatter(
+            matched_sources["xcentroid"],
+            matched_sources["ycentroid"],
+            transform=transform,
+            edgecolor="red",
+            facecolor="none",
+            s=90,
+            lw=1.3,
+        )
         if target_coord is not None:
-            ax.scatter([target_coord[0]], [target_coord[1]], transform=transform, edgecolor="white", facecolor="none", s=160, lw=2.0)
+            ax.scatter(
+                [target_coord[0]],
+                [target_coord[1]],
+                transform=transform,
+                edgecolor="white",
+                facecolor="none",
+                s=160,
+                lw=2.0,
+            )
         ax.set_xlim(0, nx)
         ax.set_ylim(0, ny)
         ax.coords[0].set_axislabel("Right Ascension")
@@ -497,10 +540,31 @@ def plot_photometry_sources(
         fig, ax = plt.subplots(figsize=(10, 10))
         vmin, vmax = np.percentile(data, [30, 99])
         ax.imshow(data, cmap="gray_r", origin="lower", vmin=vmin, vmax=vmax)
-        ax.scatter(image_sources["xcentroid"], image_sources["ycentroid"], edgecolor="blue", facecolor="none", s=18, alpha=0.8)
-        ax.scatter(matched_sources["xcentroid"], matched_sources["ycentroid"], edgecolor="red", facecolor="none", s=90, lw=1.5)
+        ax.scatter(
+            image_sources["xcentroid"],
+            image_sources["ycentroid"],
+            edgecolor="blue",
+            facecolor="none",
+            s=18,
+            alpha=0.8,
+        )
+        ax.scatter(
+            matched_sources["xcentroid"],
+            matched_sources["ycentroid"],
+            edgecolor="red",
+            facecolor="none",
+            s=90,
+            lw=1.5,
+        )
         if target_coord is not None:
-            ax.scatter([target_coord[0]], [target_coord[1]], edgecolor="green", facecolor="none", s=180, lw=2.0)
+            ax.scatter(
+                [target_coord[0]],
+                [target_coord[1]],
+                edgecolor="green",
+                facecolor="none",
+                s=180,
+                lw=2.0,
+            )
         ax.set_xlim(0, nx)
         ax.set_ylim(0, ny)
         ax.set_xlabel("X (pixel)")

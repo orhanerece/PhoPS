@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from dataclasses import dataclass, field
 import importlib.util
 import logging
-from queue import Queue
 import re
 import shutil
 import sys
-from typing import Any, Protocol
 import warnings
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from queue import Queue
+from typing import Any, Protocol
 
 
 @dataclass
@@ -60,13 +60,62 @@ FRAME_STAGES = ("astrometry", "photometry", "target", "plot")
 FRAME_STAGE_TOTAL = len(FRAME_STAGES)
 FRAME_STAGE_INDEX = {stage: index for index, stage in enumerate(FRAME_STAGES, start=1)}
 STAGE_META = {
-    "general": {"label": "general", "short": "INFO", "simple_badge": "·", "rich_badge": "·", "simple_color": "37", "rich_style": "white"},
-    "pipeline": {"label": "pipeline", "short": "RUN", "simple_badge": "◆", "rich_badge": "🛰", "simple_color": "36;1", "rich_style": "bold cyan"},
-    "astrometry": {"label": "astrometry", "short": "ASTRO", "simple_badge": "◎", "rich_badge": "🧭", "simple_color": "34;1", "rich_style": "bold blue"},
-    "photometry": {"label": "photometry", "short": "PHOTO", "simple_badge": "◉", "rich_badge": "📷", "simple_color": "32;1", "rich_style": "bold green"},
-    "target": {"label": "target", "short": "TARGET", "simple_badge": "⌖", "rich_badge": "🎯", "simple_color": "35;1", "rich_style": "bold magenta"},
-    "plot": {"label": "plot", "short": "PLOT", "simple_badge": "▣", "rich_badge": "📈", "simple_color": "37;1", "rich_style": "bold white"},
-    "gui": {"label": "gui", "short": "GUI", "simple_badge": "□", "rich_badge": "□", "simple_color": "36", "rich_style": "cyan"},
+    "general": {
+        "label": "general",
+        "short": "INFO",
+        "simple_badge": "·",
+        "rich_badge": "·",
+        "simple_color": "37",
+        "rich_style": "white",
+    },
+    "pipeline": {
+        "label": "pipeline",
+        "short": "RUN",
+        "simple_badge": "◆",
+        "rich_badge": "🛰",
+        "simple_color": "36;1",
+        "rich_style": "bold cyan",
+    },
+    "astrometry": {
+        "label": "astrometry",
+        "short": "ASTRO",
+        "simple_badge": "◎",
+        "rich_badge": "🧭",
+        "simple_color": "34;1",
+        "rich_style": "bold blue",
+    },
+    "photometry": {
+        "label": "photometry",
+        "short": "PHOTO",
+        "simple_badge": "◉",
+        "rich_badge": "📷",
+        "simple_color": "32;1",
+        "rich_style": "bold green",
+    },
+    "target": {
+        "label": "target",
+        "short": "TARGET",
+        "simple_badge": "⌖",
+        "rich_badge": "🎯",
+        "simple_color": "35;1",
+        "rich_style": "bold magenta",
+    },
+    "plot": {
+        "label": "plot",
+        "short": "PLOT",
+        "simple_badge": "▣",
+        "rich_badge": "📈",
+        "simple_color": "37;1",
+        "rich_style": "bold white",
+    },
+    "gui": {
+        "label": "gui",
+        "short": "GUI",
+        "simple_badge": "□",
+        "rich_badge": "□",
+        "simple_color": "36",
+        "rich_style": "cyan",
+    },
 }
 LEVEL_META = {
     "debug": {"badge": "…", "simple_color": "2", "rich_style": "dim"},
@@ -141,7 +190,13 @@ class TerminalProgressState:
             self.current_index = current_index
 
         stage_key = normalize_stage(event.stage)
-        if stage_key != "general" or event_type in {"run_summary", "run_start", "frame_start", "frame_end", "run_complete"}:
+        if stage_key != "general" or event_type in {
+            "run_summary",
+            "run_start",
+            "frame_start",
+            "frame_end",
+            "run_complete",
+        }:
             self.current_stage = stage_key
         if event.level.lower() not in {"warning", "error"}:
             self.current_action = event.message

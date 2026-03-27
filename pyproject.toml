@@ -60,12 +60,18 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.ruff]
-line-length = 100
+line-length = 140
 target-version = "py39"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"core/__init__.py" = ["E402"]
+"main.py" = ["E402"]
+"src/phops/photometry.py" = ["E402"]
+"src/phops/plotting.py" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"

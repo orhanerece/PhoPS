@@ -8,9 +8,9 @@ later without changing the core services.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from queue import Empty, Queue
-import threading
 
 from .pipeline import run_pipeline_from_file
 from .reporting import ProgressEvent, QueueReporter

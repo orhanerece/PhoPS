@@ -34,13 +34,25 @@ def test_level_key_for_event_marks_successful_completion() -> None:
 def test_terminal_progress_state_tracks_warning_and_frame_counts() -> None:
     state = TerminalProgressState()
 
-    state.apply(ProgressEvent(level="info", message="Processing 2 FITS files.", stage="pipeline", payload={"event": "run_start", "total_files": 2}))
+    state.apply(
+        ProgressEvent(
+            level="info",
+            message="Processing 2 FITS files.",
+            stage="pipeline",
+            payload={"event": "run_start", "total_files": 2},
+        )
+    )
     state.apply(
         ProgressEvent(
             level="info",
             message="Starting frame frame01.fits",
             stage="pipeline",
-            payload={"event": "frame_start", "total_files": 2, "current_index": 1, "file_name": "frame01.fits"},
+            payload={
+                "event": "frame_start",
+                "total_files": 2,
+                "current_index": 1,
+                "file_name": "frame01.fits",
+            },
         )
     )
     state.apply(ProgressEvent(level="info", message="Solving astrometry for frame01.fits", stage="astrometry"))
@@ -57,7 +69,13 @@ def test_terminal_progress_state_tracks_warning_and_frame_counts() -> None:
             level="warning",
             message="frame01.fits: not enough matched stars for calibration.",
             stage="pipeline",
-            payload={"event": "frame_end", "current_index": 1, "file_name": "frame01.fits", "frame_status": "skipped", "solved": True},
+            payload={
+                "event": "frame_end",
+                "current_index": 1,
+                "file_name": "frame01.fits",
+                "frame_status": "skipped",
+                "solved": True,
+            },
         )
     )
 
@@ -77,8 +95,8 @@ def test_capture_python_warnings_deduplicates_messages() -> None:
     reporter = CollectingReporter()
 
     with capture_python_warnings(reporter):
-        warnings.warn("repeated warning", UserWarning)
-        warnings.warn("repeated warning", UserWarning)
+        warnings.warn("repeated warning", UserWarning, stacklevel=2)
+        warnings.warn("repeated warning", UserWarning, stacklevel=2)
 
     assert len(reporter.events) == 1
     assert reporter.events[0].level == "warning"
@@ -88,7 +106,14 @@ def test_capture_python_warnings_deduplicates_messages() -> None:
 def test_python_warning_does_not_override_current_stage_or_action() -> None:
     state = TerminalProgressState(total_files=10, current_stage="astrometry", current_action="Solving astrometry")
 
-    state.apply(ProgressEvent(level="warning", message="FITSFixedWarning: header fix", stage="general", payload={"event": "python_warning"}))
+    state.apply(
+        ProgressEvent(
+            level="warning",
+            message="FITSFixedWarning: header fix",
+            stage="general",
+            payload={"event": "python_warning"},
+        )
+    )
 
     assert state.current_stage == "astrometry"
     assert state.current_action == "Solving astrometry"

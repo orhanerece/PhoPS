@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from collections.abc import Sequence
 from importlib import resources
 from pathlib import Path
-import sys
-from typing import Sequence
 
 from .config import load_config
 from .errors import PhopsError
-from .reporting import LoggingReporter, NullReporter, capture_python_warnings, create_terminal_reporter, configure_logging
+from .reporting import (
+    LoggingReporter,
+    NullReporter,
+    capture_python_warnings,
+    configure_logging,
+    create_terminal_reporter,
+)
 
 
 def _write_example_config(destination: Path) -> None:
@@ -59,25 +65,63 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run the full pipeline.")
-    run_parser.add_argument("-c", "--config", type=Path, default=Path("config.yaml"), help="Path to the YAML configuration file.")
+    run_parser.add_argument(
+        "-c",
+        "--config",
+        type=Path,
+        default=Path("config.yaml"),
+        help="Path to the YAML configuration file.",
+    )
     run_mode_group = run_parser.add_mutually_exclusive_group()
-    run_mode_group.add_argument("--resume", action="store_true", help="Resume from existing outputs and skip frames already measured.")
-    run_mode_group.add_argument("--restart", action="store_true", help="Discard previous run outputs and start from scratch.")
+    run_mode_group.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from existing outputs and skip frames already measured.",
+    )
+    run_mode_group.add_argument(
+        "--restart",
+        action="store_true",
+        help="Discard previous run outputs and start from scratch.",
+    )
     run_mode_group.add_argument("--no-overwrite", action="store_true", help=argparse.SUPPRESS)
     run_parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging.")
 
     plot_parser = subparsers.add_parser("plot-photometry", help="Render the photometry light curve from an existing CSV.")
-    plot_parser.add_argument("-c", "--config", type=Path, default=Path("config.yaml"), help="Path to the YAML configuration file.")
+    plot_parser.add_argument(
+        "-c",
+        "--config",
+        type=Path,
+        default=Path("config.yaml"),
+        help="Path to the YAML configuration file.",
+    )
     plot_parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging.")
 
     validate_parser = subparsers.add_parser("validate-config", help="Validate the YAML configuration.")
-    validate_parser.add_argument("-c", "--config", type=Path, default=Path("config.yaml"), help="Path to the YAML configuration file.")
+    validate_parser.add_argument(
+        "-c",
+        "--config",
+        type=Path,
+        default=Path("config.yaml"),
+        help="Path to the YAML configuration file.",
+    )
 
     init_parser = subparsers.add_parser("init-config", help="Write an example configuration file.")
-    init_parser.add_argument("destination", type=Path, nargs="?", default=Path("config.yaml"), help="Where to write the example configuration.")
+    init_parser.add_argument(
+        "destination",
+        type=Path,
+        nargs="?",
+        default=Path("config.yaml"),
+        help="Where to write the example configuration.",
+    )
 
     gui_parser = subparsers.add_parser("gui", help="Launch the current reference desktop runner.")
-    gui_parser.add_argument("-c", "--config", type=Path, default=Path("config.yaml"), help="Path to the YAML configuration file.")
+    gui_parser.add_argument(
+        "-c",
+        "--config",
+        type=Path,
+        default=Path("config.yaml"),
+        help="Path to the YAML configuration file.",
+    )
 
     return parser
 

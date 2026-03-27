@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 import csv
 import math
 import shutil
 import subprocess
+from dataclasses import dataclass
+from pathlib import Path
 
+import astropy.units as u
+import numpy as np
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.time import Time
 from astropy.wcs import WCS
 from astroquery.gaia import Gaia
-import astropy.units as u
-import numpy as np
 
 from .config import AppConfig
 from .errors import AstrometrySolveError, DependencyError
@@ -112,8 +112,7 @@ class AstrometrySolver:
     def _check_binary(self, binary_name: str) -> None:
         if shutil.which(binary_name) is None:
             raise DependencyError(
-                f"Required external command '{binary_name}' was not found. "
-                "Install astrometry.net and make sure the binary is on PATH."
+                f"Required external command '{binary_name}' was not found. Install astrometry.net and make sure the binary is on PATH."
             )
 
     def _run_command(self, args: list[str]) -> None:
@@ -193,7 +192,10 @@ class AstrometrySolver:
         hp_out = self.config.paths.temp_dir / f"gaia-hp%02i_{suffix}.fits"
         self._run_command(["hpsplit", "-o", str(hp_out), "-n", "2", str(patch_path)])
         tile_files = sorted(
-            path for path in self.config.paths.temp_dir.iterdir() if path.name.startswith("gaia-hp") and path.name.endswith(f"_{suffix}.fits")
+            path
+            for path in self.config.paths.temp_dir.iterdir()
+            if path.name.startswith("gaia-hp")
+            and path.name.endswith(f"_{suffix}.fits")
         )
         for tile_path in tile_files:
             tile_id = tile_path.name.split("gaia-hp", maxsplit=1)[1].split("_", maxsplit=1)[0]

@@ -3,25 +3,24 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import tempfile
 import warnings
+from pathlib import Path
 
+from astropy import units as u
+from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
 from astropy.table import Table
 from astropy.wcs import WCS
-from astropy.coordinates import SkyCoord
-from astropy import units as u
 from photutils.aperture import CircularAnnulus, CircularAperture, aperture_photometry
 from photutils.centroids import centroid_quadratic
 from photutils.detection import DAOStarFinder
-import matplotlib
 
 MPL_DIR = Path(tempfile.gettempdir()) / "phops-mpl"
 MPL_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("MPLCONFIGDIR", str(MPL_DIR))
-matplotlib.use("Agg")
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -112,8 +111,7 @@ class Photometry:
         matched_table["pm_ra"] = gaia_table["pmra"][indices[match_mask]]
         matched_table["pm_dec"] = gaia_table["pmdec"][indices[match_mask]]
         matched_table["r_dist"] = np.sqrt(
-            (matched_table["xcentroid"] - data.shape[1] / 2) ** 2
-            + (matched_table["ycentroid"] - data.shape[0] / 2) ** 2
+            (matched_table["xcentroid"] - data.shape[1] / 2) ** 2 + (matched_table["ycentroid"] - data.shape[0] / 2) ** 2
         )
 
         if self.config.plots.plot_image:
@@ -239,7 +237,12 @@ class Photometry:
         measured_table["inst_mag"] = 25.0 - 2.5 * np.log10(net_flux)
         measured_table["mag_err"] = 1.0857 * (noise / net_flux)
         measured_table["snr"] = net_flux / noise
-        report(self.reporter, "info", f"Measured {len(measured_table)} reference stars.", stage="photometry")
+        report(
+            self.reporter,
+            "info",
+            f"Measured {len(measured_table)} reference stars.",
+            stage="photometry",
+        )
         return measured_table, median_fwhm
 
     def calculate_zeropoint_model(
@@ -259,7 +262,12 @@ class Photometry:
 
         fallback_average = float(np.nanmean(mag_diff)) if len(mag_diff) else 25.0
         if len(mag_diff) < 4:
-            report(self.reporter, "warning", "Not enough stars for zeropoint fit; using average fallback.", stage="photometry")
+            report(
+                self.reporter,
+                "warning",
+                "Not enough stars for zeropoint fit; using average fallback.",
+                stage="photometry",
+            )
             return np.poly1d([0.0, fallback_average]), 0.0, 0.0, fallback_average
 
         x_data = radius.reshape(-1, 1)
@@ -283,10 +291,28 @@ class Photometry:
 
         if plot:
             fig, ax = plt.subplots(figsize=(10, 6))
-            ax.scatter(radius[inlier_mask], mag_diff[inlier_mask], color="blue", alpha=0.6, label=f"Inliers ({np.sum(inlier_mask)})")
-            ax.scatter(radius[outlier_mask], mag_diff[outlier_mask], color="red", alpha=0.3, label=f"Outliers ({np.sum(outlier_mask)})")
+            ax.scatter(
+                radius[inlier_mask],
+                mag_diff[inlier_mask],
+                color="blue",
+                alpha=0.6,
+                label=f"Inliers ({np.sum(inlier_mask)})",
+            )
+            ax.scatter(
+                radius[outlier_mask],
+                mag_diff[outlier_mask],
+                color="red",
+                alpha=0.3,
+                label=f"Outliers ({np.sum(outlier_mask)})",
+            )
             sample = np.linspace(0, float(np.max(radius)), 100)
-            ax.plot(sample, zeropoint_function(sample), color="black", linestyle="--", label=f"Model slope={slope:.6f}")
+            ax.plot(
+                sample,
+                zeropoint_function(sample),
+                color="black",
+                linestyle="--",
+                label=f"Model slope={slope:.6f}",
+            )
             ax.set_xlabel("Distance from image center (pixels)")
             ax.set_ylabel("Standard magnitude - instrumental magnitude")
             ax.legend()
@@ -404,9 +430,7 @@ class Photometry:
         calibrated_magnitude = float(instrumental_magnitude + target_zeropoint)
         gain = self.config.instrument.gain
         read_noise = self.config.instrument.read_noise
-        noise = float(
-            np.sqrt(net_flux / gain + (aperture.area * background_median) / gain + (aperture.area * read_noise**2))
-        )
+        noise = float(np.sqrt(net_flux / gain + (aperture.area * background_median) / gain + (aperture.area * read_noise**2)))
         magnitude_error = float(1.0857 * (noise / net_flux))
         cutout_name = safe_stem(f"target_{filename}")
         save_target_cutout(

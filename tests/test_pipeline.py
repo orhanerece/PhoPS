@@ -3,16 +3,21 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from astropy.io import fits
-from astropy.table import Table
 import numpy as np
 import pandas as pd
 import pytest
+from astropy.io import fits
+from astropy.table import Table
 
 from phops.astrometry import AstrometrySolver
 from phops.config import load_config
 from phops.errors import AstrometrySolveError
-from phops.pipeline import PipelineRunner, build_run_summary_items, format_run_summary, inspect_existing_run
+from phops.pipeline import (
+    PipelineRunner,
+    build_run_summary_items,
+    format_run_summary,
+    inspect_existing_run,
+)
 from phops.target import TargetInfo
 
 
@@ -369,7 +374,6 @@ catalog: "gaiadr3.gaia_source"
 def test_pipeline_runner_resume_skips_completed_frames_and_prunes_partial_astrometry(tmp_path: Path) -> None:
     input_dir = tmp_path / "input"
     input_dir.mkdir()
-    output_dir = tmp_path / "output"
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """

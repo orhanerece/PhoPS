@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING
 
-from astropy.coordinates import SkyCoord
-from astropy.time import Time
-from astropy.time import TimeDelta
 import astropy.units as u
 import numpy as np
 import pandas as pd
+from astropy.coordinates import SkyCoord
+from astropy.time import Time, TimeDelta
 
 from .errors import ConfigurationError
 
@@ -81,7 +81,7 @@ def _parse_time_value(raw_value: object, *, prefer_jd: bool = False) -> Time:
     raise ConfigurationError(f"Unsupported observation time value: {raw_value}")
 
 
-def observation_time_from_header(header, fits_keywords: "FitsKeywordsConfig") -> Time:
+def observation_time_from_header(header, fits_keywords: FitsKeywordsConfig) -> Time:
     """Return the mid-exposure observation time from a FITS header."""
 
     jd_raw = header.get(fits_keywords.jd_key)
@@ -95,7 +95,7 @@ def observation_time_from_header(header, fits_keywords: "FitsKeywordsConfig") ->
     return time_value + TimeDelta(exposure_seconds / 2.0, format="sec")
 
 
-def observation_jd_from_header(header, fits_keywords: "FitsKeywordsConfig") -> float:
+def observation_jd_from_header(header, fits_keywords: FitsKeywordsConfig) -> float:
     """Return the mid-exposure Julian Date from a FITS header."""
 
     return float(observation_time_from_header(header, fits_keywords).jd)
