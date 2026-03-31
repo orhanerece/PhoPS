@@ -12,7 +12,6 @@ from pathlib import Path
 import astropy.units as u
 import numpy as np
 from astropy.coordinates import SkyCoord
-from astropy.io import fits
 from astropy.time import Time
 from astropy.wcs import WCS
 from astroquery.gaia import Gaia

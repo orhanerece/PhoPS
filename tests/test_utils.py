@@ -5,8 +5,8 @@ from astropy.io import fits
 
 from phops.config import FitsKeywordsConfig
 from phops.utils import (
-    describe_input_selector,
     dec_to_deg,
+    describe_input_selector,
     iter_input_files,
     load_fits_image,
     observation_time_from_header,
