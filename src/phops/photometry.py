@@ -9,7 +9,6 @@ from pathlib import Path
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord
-from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
 from astropy.table import Table
 from astropy.wcs import WCS
@@ -30,7 +29,7 @@ from .config import AppConfig
 from .plotting import plot_photometry_sources, save_target_cutout
 from .reporting import NullReporter, ProgressReporter, report
 from .target import TargetInfo
-from .utils import safe_stem
+from .utils import load_fits_image, safe_stem
 
 
 class Photometry:
@@ -53,10 +52,7 @@ class Photometry:
 
         image_path = Path(image_path)
         gaia_catalog_path = Path(gaia_catalog_path)
-        with fits.open(image_path) as hdul:
-            data = hdul[0].data.astype(float)
-            header = hdul[0].header
-            wcs = WCS(header)
+        data, header, wcs = load_fits_image(image_path)
 
         _, median, std = sigma_clipped_stats(data, sigma=3.0)
         finder = DAOStarFinder(

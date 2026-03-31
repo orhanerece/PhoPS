@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and the project follows Semantic Versioning.
 
+## [Unreleased]
+### Added
+- More flexible input-file selection that accepts common FITS-family suffixes (`fits`, `fit`, `fts`, and `.gz` variants) and optional glob-style selectors.
+
+### Changed
+- Light-curve auxiliary panels now skip constant quality metrics so fixed-value series such as flat FWHM do not produce low-signal subplots.
+- Existing-WCS runs now reuse the embedded science extension and WCS information more reliably for multi-extension FITS products such as HST/WFC3 `*_flc.fits`.
+
+### Fixed
+- FITS image loading now prefers the actual science extension and merges primary metadata, improving compatibility with multi-extension observatory products.
+- Observation-time parsing now supports split date/time keywords and MJD-based headers such as HST `EXPSTART`.
+- Gaia reference-patch preparation in `existing_wcs` mode no longer requires local astrometry.net index generation and now handles both masked and unmasked Gaia table columns.
+
 ## [0.1.0] - 2026-03-26
 ### Added
 - Modern `src/` package layout with installable `phops` package.

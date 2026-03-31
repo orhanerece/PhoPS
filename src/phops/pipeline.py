@@ -10,8 +10,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from astropy.io import fits
-from astropy.wcs import WCS
 
 from .astrometry import AstrometrySolver
 from .config import AppConfig, load_config
@@ -20,7 +18,7 @@ from .photometry import Photometry
 from .plotting import plot_astrometry_residuals, plot_photometry_light_curve
 from .reporting import NullReporter, ProgressReporter, capture_python_warnings, report
 from .target import TargetManager
-from .utils import append_rows_to_csv, calculate_residuals, iter_input_files
+from .utils import append_rows_to_csv, calculate_residuals, describe_input_selector, iter_input_files, load_fits_image
 
 
 @dataclass
@@ -201,9 +199,7 @@ def build_run_summary_items(
     plot_modes = ", ".join(enabled_plots) if enabled_plots else "disabled"
 
     total_input_files = existing_state.total_input_files if existing_state else total_files
-    input_value = (
-        f"{config.paths.input_dir} ({total_input_files} *.{config.paths.file_extension} files)"
-    )
+    input_value = f"{config.paths.input_dir} ({total_input_files} {describe_input_selector(config.paths.file_extension)} files)"
     if existing_state is not None and not overwrite:
         input_value += f" | {len(existing_state.completed_frames)} completed | {total_files} pending"
 
@@ -266,7 +262,8 @@ class PipelineRunner:
         input_files = iter_input_files(self.config.paths.input_dir, self.config.paths.file_extension)
         if not input_files:
             raise PipelineError(
-                f"No input files with extension '.{self.config.paths.file_extension}' were found in {self.config.paths.input_dir}."
+                f"No input files matching '{describe_input_selector(self.config.paths.file_extension)}' were found in "
+                f"{self.config.paths.input_dir}."
             )
 
         photometry_csv = self.config.paths.photometry_csv_path
@@ -355,14 +352,12 @@ class PipelineRunner:
                 continue
 
             try:
-                with fits.open(solved_fits) as hdul:
-                    header = hdul[0].header
-                    data = hdul[0].data.astype(float)
-                    wcs = WCS(header)
+                data, header, wcs = load_fits_image(solved_fits)
 
                 ra_img, dec_img, observation_time = self.astrometry_solver.extract_field_coordinates(
                     header,
                     image_path.name,
+                    wcs=wcs,
                 )
                 gaia_patch = self.astrometry_solver.catalog_patch_path(ra_img, dec_img, observation_time)
                 if not gaia_patch.exists():

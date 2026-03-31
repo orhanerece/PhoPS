@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 from phops.config import load_config
-from phops.plotting import _light_curve_y_limits, plot_photometry_light_curve
+from phops.plotting import _light_curve_aux_columns, _light_curve_y_limits, plot_photometry_light_curve
 
 
 def _write_config(config_path: Path) -> None:
@@ -111,3 +111,17 @@ def test_light_curve_y_limits_use_three_sigma_window() -> None:
     assert lower < 12.09
     assert upper > 12.11
     assert upper < 12.60
+
+
+def test_light_curve_aux_columns_skip_constant_fwhm() -> None:
+    df = pd.DataFrame(
+        {
+            "snr": [120, 118, 119, 117],
+            "fwhm": [3.0, 3.0, 3.0, 3.0],
+            "zp_scatter": [0.011, 0.010, 0.012, 0.010],
+        }
+    )
+
+    aux_columns = _light_curve_aux_columns(df)
+
+    assert aux_columns == ["snr", "zp_scatter"]

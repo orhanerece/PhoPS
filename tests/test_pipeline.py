@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 from astropy.io import fits
 from astropy.table import Table
+from astropy.time import Time
 
 from phops.astrometry import AstrometrySolver
 from phops.config import load_config
@@ -50,8 +51,8 @@ class FakeAstrometrySolver:
         self._write_patch()
         return output_path
 
-    def extract_field_coordinates(self, header, image_name: str = "<header>"):
-        del image_name
+    def extract_field_coordinates(self, header, image_name: str = "<header>", wcs=None):
+        del image_name, wcs
         return 10.0, 20.0, 2461125.5
 
     def catalog_patch_path(self, ra: float, dec: float, observation_time) -> Path:
@@ -299,6 +300,92 @@ catalog: "gaiadr3.gaia_source"
     assert solver.solve(frame_path) == frame_path.resolve()
 
 
+def test_astrometry_solver_existing_wcs_supports_science_extension_headers(tmp_path: Path) -> None:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+fits_keywords:
+  ra_key: "RA_TARG"
+  dec_key: "DEC_TARG"
+  date_key: "DATE-OBS"
+  time_key: "TIME-OBS"
+  exposure_key: "EXPTIME"
+  mjd_key: "EXPSTART"
+astrometry:
+  solve_mode: "existing_wcs"
+  radius: 0.5
+  quad_scales: [0, 2]
+  cache_tolerance: 0.1
+instrument:
+  pixel_scale: 0.04
+  gain: 1.5
+  read_noise: 3.1
+source_detection:
+  fwhm_guess: 2.0
+  threshold_sigma: 3.0
+  min_area: 5
+  edge_margin: 10
+matching:
+  isolation_radius_arcsec: 0.2
+  match_constraint_arcsec: 1.0
+photometry:
+  mode: "star"
+  coords: [10.0, 20.0]
+  filter: "V"
+  aperture_method: "fixed_pixel"
+  aperture: 4
+  annulus_inner: 6
+  annulus_outer: 8
+  zeropoint: "fit"
+paths:
+  input_dir: "input"
+  temp_dir: "temp"
+  index_dir: "indexes"
+  solve_dir: "output"
+  output_photometry: "photometry.csv"
+  output_astrometry: "astrometry.csv"
+  file_extension: "fits"
+plots:
+  plot_astrometry: false
+  plot_image: false
+  image_scale: "pixel"
+catalog: "gaiadr3.gaia_source"
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    primary = fits.PrimaryHDU()
+    primary.header["DATE-OBS"] = "2026-03-26"
+    primary.header["TIME-OBS"] = "00:00:00"
+    primary.header["EXPSTART"] = 61125.0
+    primary.header["EXPTIME"] = 30.0
+    primary.header["RA_TARG"] = 10.0
+    primary.header["DEC_TARG"] = 20.0
+
+    sci_header = fits.Header()
+    sci_header["EXTNAME"] = "SCI"
+    sci_header["CRPIX1"] = 40.0
+    sci_header["CRPIX2"] = 40.0
+    sci_header["CRVAL1"] = 10.0
+    sci_header["CRVAL2"] = 20.0
+    sci_header["CD1_1"] = -0.0002
+    sci_header["CD1_2"] = 0.0
+    sci_header["CD2_1"] = 0.0
+    sci_header["CD2_2"] = 0.0002
+    sci_header["CTYPE1"] = "RA---TAN"
+    sci_header["CTYPE2"] = "DEC--TAN"
+    sci = fits.ImageHDU(data=np.ones((80, 80)), header=sci_header)
+    frame_path = input_dir / "frame01_flc.fits"
+    fits.HDUList([primary, sci]).writeto(frame_path)
+
+    config = load_config(config_path)
+    solver = AstrometrySolver(config)
+
+    assert solver.solve(frame_path) == frame_path.resolve()
+
+
 def test_astrometry_solver_existing_wcs_requires_celestial_wcs(tmp_path: Path) -> None:
     input_dir = tmp_path / "input"
     input_dir.mkdir()
@@ -369,6 +456,95 @@ catalog: "gaiadr3.gaia_source"
 
     with pytest.raises(AstrometrySolveError, match="existing_wcs"):
         solver.solve(frame_path)
+
+
+def test_existing_wcs_reference_patch_skips_astrometry_index_commands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+fits_keywords:
+  ra_key: "RA_TARG"
+  dec_key: "DEC_TARG"
+  date_key: "DATE-OBS"
+  time_key: "TIME-OBS"
+  exposure_key: "EXPTIME"
+  mjd_key: "EXPSTART"
+astrometry:
+  solve_mode: "existing_wcs"
+  radius: 0.08
+  quad_scales: [0, 2]
+  cache_tolerance: 0.02
+instrument:
+  pixel_scale: 0.04
+  gain: 1.0
+  read_noise: 3.1
+source_detection:
+  fwhm_guess: 2.0
+  threshold_sigma: 3.0
+  min_area: 5
+  edge_margin: 10
+matching:
+  isolation_radius_arcsec: 0.2
+  match_constraint_arcsec: 1.0
+photometry:
+  mode: "star"
+  coords: [10.0, 20.0]
+  filter: "V"
+  aperture_method: "fixed_pixel"
+  aperture: 4
+  annulus_inner: 6
+  annulus_outer: 8
+  zeropoint: "fit"
+paths:
+  input_dir: "input"
+  temp_dir: "temp"
+  index_dir: "indexes"
+  solve_dir: "output"
+  output_photometry: "photometry.csv"
+  output_astrometry: "astrometry.csv"
+  file_extension: "fits"
+plots:
+  plot_astrometry: false
+  plot_image: false
+  image_scale: "pixel"
+catalog: "gaiadr3.gaia_source"
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    class FakeGaiaJob:
+        def get_results(self):
+            return Table(
+                {
+                    "source_id": [1, 2, 3, 4, 5],
+                    "ra": [10.0, 10.01, 10.02, 10.03, 10.04],
+                    "dec": [20.0, 20.01, 20.02, 20.03, 20.04],
+                    "pmra": [1.0, 1.0, 1.0, 1.0, 1.0],
+                    "pmdec": [1.0, 1.0, 1.0, 1.0, 1.0],
+                    "phot_g_mean_mag": [12.0, 12.5, 13.0, 13.5, 14.0],
+                    "bp_rp": [0.5, 0.6, 0.7, 0.8, 0.9],
+                    "parallax": [1.0, 1.1, 1.2, 1.3, 1.4],
+                }
+            )
+
+    monkeypatch.setattr("phops.astrometry.Gaia.launch_job_async", lambda query: FakeGaiaJob())
+
+    commands: list[list[str]] = []
+
+    def fake_run_command(args: list[str]) -> None:
+        commands.append(args)
+
+    config = load_config(config_path)
+    solver = AstrometrySolver(config)
+    monkeypatch.setattr(solver, "_run_command", fake_run_command)
+
+    patch_path = solver.ensure_reference_patch(10.0, 20.0, Time(2026.0, format="jyear", scale="utc"))
+
+    assert patch_path.exists()
+    assert commands == []
 
 
 def test_pipeline_runner_resume_skips_completed_frames_and_prunes_partial_astrometry(tmp_path: Path) -> None:

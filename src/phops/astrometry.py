@@ -20,7 +20,7 @@ from astroquery.gaia import Gaia
 from .config import AppConfig
 from .errors import AstrometrySolveError, DependencyError
 from .reporting import NullReporter, ProgressReporter, report
-from .utils import dec_to_deg, observation_time_from_header, ra_to_deg
+from .utils import dec_to_deg, load_fits_image, observation_time_from_header, ra_to_deg
 
 
 @dataclass
@@ -47,7 +47,7 @@ class AstrometrySolver:
         suffix = self._area_suffix(ra, dec, observation_time)
         return self.config.paths.temp_dir / f"gaia_reference_{suffix}.fits"
 
-    def extract_field_coordinates(self, header, image_name: str = "<header>") -> tuple[float, float, Time]:
+    def extract_field_coordinates(self, header, image_name: str = "<header>", wcs: WCS | None = None) -> tuple[float, float, Time]:
         """Read field coordinates and observation time from a FITS header."""
 
         ra_raw = header.get(self.config.fits_keywords.ra_key)
@@ -56,8 +56,19 @@ class AstrometrySolver:
             ra_img = ra_to_deg(ra_raw)
             dec_img = dec_to_deg(dec_raw)
         else:
-            wcs = WCS(header)
-            if not wcs.has_celestial or "CRVAL1" not in header or "CRVAL2" not in header:
+            if "CRVAL1" not in header or "CRVAL2" not in header:
+                raise AstrometrySolveError(
+                    f"Could not determine field coordinates for {image_name}. "
+                    f"Expected FITS keywords '{self.config.fits_keywords.ra_key}'/'{self.config.fits_keywords.dec_key}' "
+                    "or a celestial WCS with CRVAL1/CRVAL2."
+                )
+            resolved_wcs = wcs
+            if resolved_wcs is None:
+                try:
+                    resolved_wcs = WCS(header)
+                except Exception:
+                    resolved_wcs = None
+            if resolved_wcs is not None and not resolved_wcs.has_celestial:
                 raise AstrometrySolveError(
                     f"Could not determine field coordinates for {image_name}. "
                     f"Expected FITS keywords '{self.config.fits_keywords.ra_key}'/'{self.config.fits_keywords.dec_key}' "
@@ -69,10 +80,10 @@ class AstrometrySolver:
         observation_time = observation_time_from_header(header, self.config.fits_keywords)
         return ra_img, dec_img, observation_time
 
-    def validate_existing_wcs(self, header, image_name: str) -> None:
+    def validate_existing_wcs(self, header, image_name: str, wcs: WCS | None = None) -> None:
         """Ensure the FITS header contains a usable celestial WCS."""
 
-        wcs = WCS(header)
+        wcs = wcs or WCS(header)
         if not wcs.has_celestial:
             raise AstrometrySolveError(
                 f"'existing_wcs' mode requires a celestial WCS in {image_name}. "
@@ -155,7 +166,13 @@ class AstrometrySolver:
         if len(data) == 0:
             raise AstrometrySolveError("Gaia query returned no stars for the requested field.")
 
-        mask = ~data["pmra"].mask & ~data["pmdec"].mask & ~data["parallax"].mask
+        def _valid_column_mask(column) -> np.ndarray:
+            raw_mask = getattr(column, "mask", None)
+            if raw_mask is None:
+                return np.ones(len(column), dtype=bool)
+            return ~np.asarray(raw_mask, dtype=bool)
+
+        mask = _valid_column_mask(data["pmra"]) & _valid_column_mask(data["pmdec"]) & _valid_column_mask(data["parallax"])
         data = data[mask]
         if len(data) == 0:
             raise AstrometrySolveError("Gaia stars do not contain enough proper-motion information.")
@@ -188,6 +205,10 @@ class AstrometrySolver:
         patch_path = override_patch_path or self.catalog_patch_path(ra, dec, observation_time)
         patch_path.parent.mkdir(parents=True, exist_ok=True)
         data.write(patch_path, overwrite=True)
+
+        if self.config.astrometry.solve_mode == "existing_wcs":
+            self._add_cache_entry(ra, dec, observation_time)
+            return patch_path
 
         hp_out = self.config.paths.temp_dir / f"gaia-hp%02i_{suffix}.fits"
         self._run_command(["hpsplit", "-o", str(hp_out), "-n", "2", str(patch_path)])
@@ -230,14 +251,13 @@ class AstrometrySolver:
         """Solve a FITS image and return the solved FITS path."""
 
         image_path = Path(image_path).resolve()
-        with fits.open(image_path) as hdul:
-            header = hdul[0].header
-            ra_img, dec_img, observation_time = self.extract_field_coordinates(header, image_path.name)
+        _, header, wcs = load_fits_image(image_path)
+        ra_img, dec_img, observation_time = self.extract_field_coordinates(header, image_path.name, wcs=wcs)
 
-            if self.config.astrometry.solve_mode == "existing_wcs":
-                self.validate_existing_wcs(header, image_path.name)
-                report(self.reporter, "info", f"Using existing WCS from {image_path.name}", stage="astrometry")
-                return image_path
+        if self.config.astrometry.solve_mode == "existing_wcs":
+            self.validate_existing_wcs(header, image_path.name, wcs=wcs)
+            report(self.reporter, "info", f"Using existing WCS from {image_path.name}", stage="astrometry")
+            return image_path
 
         self.ensure_reference_patch(ra_img, dec_img, observation_time)
         output_fits = self.config.paths.solve_dir / f"{image_path.stem}_new.fits"

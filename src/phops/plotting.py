@@ -63,6 +63,25 @@ LIGHT_CURVE_AUX_META = {
 }
 
 
+def _has_meaningful_variation(values: np.ndarray) -> bool:
+    finite_values = np.asarray(values[np.isfinite(values)], dtype=float)
+    if finite_values.size < 2:
+        return False
+    spread = float(np.nanmax(finite_values) - np.nanmin(finite_values))
+    scale = max(float(np.nanmedian(np.abs(finite_values))), 1.0)
+    return spread > (1e-6 * scale)
+
+
+def _light_curve_aux_columns(df: pd.DataFrame) -> list[str]:
+    columns: list[str] = []
+    for column in ("snr", "fwhm", "zp_scatter"):
+        if column not in df:
+            continue
+        if _has_meaningful_variation(np.asarray(df[column], dtype=float)):
+            columns.append(column)
+    return columns
+
+
 def _light_curve_x_values(df: pd.DataFrame, x_axis: str) -> tuple[np.ndarray, str, float]:
     jd_values = np.asarray(df["jd"], dtype=float)
     reference_jd = float(np.nanmin(jd_values))
@@ -288,7 +307,7 @@ def plot_photometry_light_curve(
     )
     outlier_mask = _flag_light_curve_outliers(df)
 
-    aux_columns = [column for column in ("snr", "fwhm", "zp_scatter") if column in df.columns]
+    aux_columns = _light_curve_aux_columns(df)
     show_aux = config.plots.light_curve_aux_panels and bool(aux_columns)
     panel_rows = 1 + len(aux_columns) if show_aux else 1
     height_ratios = [3.4] + [1.0] * len(aux_columns) if show_aux else [1.0]

@@ -73,8 +73,10 @@ class FitsKeywordsConfig:
     ra_key: str = "RA"
     dec_key: str = "DEC"
     date_key: str = "DATE-OBS"
+    time_key: str | None = None
     exposure_key: str = "EXPTIME"
     jd_key: str = "JD"
+    mjd_key: str | None = None
 
     @classmethod
     def from_mapping(cls, mapping: dict[str, Any]) -> FitsKeywordsConfig:
@@ -82,8 +84,10 @@ class FitsKeywordsConfig:
             ra_key=str(mapping.get("ra_key", "RA")),
             dec_key=str(mapping.get("dec_key", "DEC")),
             date_key=str(mapping.get("date_key", "DATE-OBS")),
+            time_key=None if mapping.get("time_key") in (None, "") else str(mapping.get("time_key")),
             exposure_key=str(mapping.get("exposure_key", "EXPTIME")),
             jd_key=str(mapping.get("jd_key", "JD")),
+            mjd_key=None if mapping.get("mjd_key") in (None, "") else str(mapping.get("mjd_key")),
         )
 
 
