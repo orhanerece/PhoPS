@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from phops.errors import ConfigurationError
 from phops.config import load_config
+from phops.errors import ConfigurationError
 
 
 def test_load_example_config() -> None:
