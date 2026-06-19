@@ -64,9 +64,9 @@ photometry:
   analysis_summary_filename: "phops_analysis_summary.yaml"
 
 paths:
-  input_dir: "data/files"
-  temp_dir: "/Users/orhanerece/Phops/data/temp"
-  index_dir: "/Users/orhanerece/Phops/data/indexes"
+  input_dir: "files"
+  temp_dir: "data/temp"
+  index_dir: "data/indexes"
   solve_dir: "output"
   output_photometry: "photometry.csv"
   output_astrometry: "astrometry.csv"
