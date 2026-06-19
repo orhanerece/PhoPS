@@ -102,6 +102,8 @@ class Photometry:
         matched_table["img_dec"] = dec_img[match_mask]
         matched_table["gaia_ra"] = gaia_table["ra"][indices[match_mask]]
         matched_table["gaia_dec"] = gaia_table["dec"][indices[match_mask]]
+        if "source_id" in gaia_table.colnames:
+            matched_table["source_id"] = gaia_table["source_id"][indices[match_mask]]
         matched_table["gaia_gmag"] = gaia_table["phot_g_mean_mag"][indices[match_mask]]
         matched_table["bp_rp"] = gaia_table["bp_rp"][indices[match_mask]]
         matched_table["pm_ra"] = gaia_table["pmra"][indices[match_mask]]
@@ -253,11 +255,14 @@ class Photometry:
         mag_diff = np.asarray(matched_table["standard_mag"] - matched_table["inst_mag"], dtype=float)
         radius = np.asarray(matched_table["r_dist"], dtype=float)
         valid_mask = np.isfinite(mag_diff) & np.isfinite(radius)
+        matched_table["zp_valid"] = valid_mask
+        matched_table["zp_inlier"] = np.zeros(len(matched_table), dtype=bool)
         mag_diff = mag_diff[valid_mask]
         radius = radius[valid_mask]
 
         fallback_average = float(np.nanmean(mag_diff)) if len(mag_diff) else 25.0
         if len(mag_diff) < 4:
+            matched_table["zp_inlier"] = valid_mask
             report(
                 self.reporter,
                 "warning",
@@ -272,6 +277,9 @@ class Photometry:
         ransac.fit(x_data, y_data)
         inlier_mask = np.asarray(ransac.inlier_mask_, dtype=bool)
         outlier_mask = ~inlier_mask
+        full_inlier_mask = np.zeros(len(matched_table), dtype=bool)
+        full_inlier_mask[np.where(valid_mask)[0]] = inlier_mask
+        matched_table["zp_inlier"] = full_inlier_mask
         slope = float(ransac.estimator_.coef_[0][0])
         intercept = float(ransac.estimator_.intercept_[0])
         zeropoint_function = np.poly1d([slope, intercept])

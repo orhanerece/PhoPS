@@ -11,6 +11,8 @@ PhoPS writes three output categories.
   Target photometry per processed frame.
 - `paths.output_astrometry`
   Residual table for Gaia matched stars.
+- `paths.output_reference_star_timeseries`
+  Optional per-frame calibrated photometry for valid reference stars when `photometry.export_reference_star_timeseries` is enabled.
 - `output/.phops-run-state.json`
   Hidden checkpoint file used by `phops run` to offer `resume` and skip frames that were already measured before an interruption.
 

@@ -45,6 +45,7 @@ photometry:
   annulus_inner: 7
   annulus_outer: 9
   zeropoint: "fit"
+  export_reference_star_timeseries: false
 
 paths:
   input_dir: "A"
@@ -53,6 +54,7 @@ paths:
   solve_dir: "output"
   output_photometry: "photometry.csv"
   output_astrometry: "astrometry.csv"
+  output_reference_star_timeseries: "reference_star_timeseries.csv"
   file_extension: "fits"
   plot_dir: "output/plots"
   cutout_dir: "output/cutouts"

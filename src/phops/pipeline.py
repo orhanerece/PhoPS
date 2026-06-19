@@ -134,6 +134,82 @@ def _prune_astrometry_csv(path: Path, completed_frames: set[str]) -> None:
     filtered.to_csv(path, index=False)
 
 
+def _as_float(value: object) -> float:
+    if np.ma.is_masked(value):
+        return np.nan
+    if hasattr(value, "value"):
+        value = value.value
+    return float(value)
+
+
+def _as_csv_value(value: object) -> object:
+    if np.ma.is_masked(value):
+        return ""
+    if hasattr(value, "value"):
+        value = value.value
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except ValueError:
+            return value
+    return value
+
+
+def _observation_jd(observation_time: object) -> float:
+    if hasattr(observation_time, "jd"):
+        return float(observation_time.jd)
+    return float(observation_time)
+
+
+def _reference_star_timeseries_rows(
+    *,
+    filename: str,
+    jd: float,
+    measured_stars,
+    zp_function,
+    zp_average: float,
+    zeropoint_mode: str,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for star in measured_stars:
+        standard_mag = _as_float(star["standard_mag"])
+        inst_mag = _as_float(star["inst_mag"])
+        mag_err = _as_float(star["mag_err"])
+        radius = _as_float(star["r_dist"])
+        gaia_gmag = _as_float(star["gaia_gmag"])
+        if not (
+            np.isfinite(standard_mag)
+            and np.isfinite(inst_mag)
+            and np.isfinite(mag_err)
+            and np.isfinite(radius)
+            and np.isfinite(gaia_gmag)
+        ):
+            continue
+        if "zp_valid" in measured_stars.colnames and not bool(star["zp_valid"]):
+            continue
+
+        zeropoint = float(zp_average) if zeropoint_mode == "average" else float(zp_function(radius))
+        rows.append(
+            {
+                "filename": filename,
+                "jd": jd,
+                "source_id": _as_csv_value(star["source_id"]) if "source_id" in measured_stars.colnames else "",
+                "gaia_gmag": gaia_gmag,
+                "bp_rp": _as_float(star["bp_rp"]) if "bp_rp" in measured_stars.colnames else np.nan,
+                "x": _as_float(star["x_precise"] if "x_precise" in measured_stars.colnames else star["xcentroid"]),
+                "y": _as_float(star["y_precise"] if "y_precise" in measured_stars.colnames else star["ycentroid"]),
+                "mag_inst": inst_mag,
+                "zp": zeropoint,
+                "mag_calib": float(inst_mag + zeropoint),
+                "mag_err": mag_err,
+                "zp_inlier": bool(star["zp_inlier"]) if "zp_inlier" in measured_stars.colnames else "",
+                "standard_mag": standard_mag,
+                "snr": _as_float(star["snr"]) if "snr" in measured_stars.colnames else np.nan,
+            }
+        )
+    return rows
+
+
 def _write_run_state(state_path: Path, input_dir: Path, completed_frames: set[str]) -> None:
     payload = {
         "version": 1,
@@ -268,12 +344,15 @@ class PipelineRunner:
 
         photometry_csv = self.config.paths.photometry_csv_path
         astrometry_csv = self.config.paths.astrometry_csv_path
+        reference_star_timeseries_csv = self.config.paths.reference_star_timeseries_csv_path
         run_state_path = self.config.paths.run_state_path
         existing_state = inspect_existing_run(self.config) if resume else None
         completed_frames: set[str] = set()
         if overwrite:
             photometry_csv.unlink(missing_ok=True)
             astrometry_csv.unlink(missing_ok=True)
+            if self.config.photometry.export_reference_star_timeseries:
+                reference_star_timeseries_csv.unlink(missing_ok=True)
             run_state_path.unlink(missing_ok=True)
         elif resume:
             completed_frames = _deduplicate_photometry_csv(photometry_csv)
@@ -405,6 +484,17 @@ class PipelineRunner:
                     output_path=zeropoint_plot,
                 )
                 generated_plots.append(zeropoint_plot)
+
+                if self.config.photometry.export_reference_star_timeseries:
+                    reference_rows = _reference_star_timeseries_rows(
+                        filename=image_path.name,
+                        jd=_observation_jd(observation_time),
+                        measured_stars=measured_stars,
+                        zp_function=zp_function,
+                        zp_average=zp_average,
+                        zeropoint_mode=self.config.photometry.zeropoint,
+                    )
+                    append_rows_to_csv(reference_star_timeseries_csv, reference_rows)
 
                 target_info = self.target_manager.resolve(header)
                 report(

@@ -78,6 +78,7 @@ class FakePhotometry:
                 "img_dec": [20.0, 20.1, 20.2, 20.3, 20.4],
                 "gaia_ra": [10.0, 10.1, 10.2, 10.3, 10.4],
                 "gaia_dec": [20.0, 20.1, 20.2, 20.3, 20.4],
+                "source_id": [101, 102, 103, 104, 105],
                 "gaia_gmag": [12.0, 12.2, 12.4, 12.6, 12.8],
                 "bp_rp": [0.5, 0.6, 0.7, 0.8, 0.9],
                 "r_dist": [10, 20, 30, 40, 50],
@@ -93,10 +94,14 @@ class FakePhotometry:
     def perform_aperture_photometry(self, data, matched_table: Table, image_sources: Table):
         del data, image_sources
         matched_table["inst_mag"] = [10.0, 10.1, 10.2, 10.3, 10.4]
+        matched_table["mag_err"] = [0.01, 0.011, 0.012, 0.013, 0.014]
+        matched_table["snr"] = [100.0, 90.0, 80.0, 70.0, 60.0]
         return matched_table, 3.0
 
     def calculate_zeropoint_model(self, matched_table: Table, save_plot: bool = True, output_path: Path | None = None):
-        del matched_table, save_plot
+        del save_plot
+        matched_table["zp_valid"] = [True, True, True, True, True]
+        matched_table["zp_inlier"] = [True, True, True, False, True]
         if output_path is not None:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text("fake plot", encoding="utf-8")
@@ -219,6 +224,116 @@ catalog: "gaiadr3.gaia_source"
     astrometry_frame = pd.read_csv(output_dir / "astrometry.csv")
     assert len(photometry_frame) == 1
     assert len(astrometry_frame) == 5
+    assert not config.paths.reference_star_timeseries_csv_path.exists()
+    assert list(photometry_frame.columns) == [
+        "filename",
+        "jd",
+        "mag_inst",
+        "mag_calib",
+        "snr",
+        "mag_err",
+        "x_target",
+        "y_target",
+        "bg",
+        "zp",
+        "zp_scatter",
+        "fwhm",
+    ]
+
+
+def test_pipeline_runner_writes_reference_star_timeseries_when_enabled(tmp_path: Path) -> None:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+fits_keywords:
+  ra_key: "OBJCTRA"
+  dec_key: "OBJCTDEC"
+  date_key: "DATE-OBS"
+  exposure_key: "EXPTIME"
+  jd_key: "JD"
+astrometry:
+  radius: 0.5
+  quad_scales: [0, 2]
+  cache_tolerance: 0.1
+instrument:
+  pixel_scale: 0.62
+  gain: 1.0
+  read_noise: 5.0
+source_detection:
+  fwhm_guess: 5.0
+  threshold_sigma: 3.0
+  min_area: 5
+  edge_margin: 10
+matching:
+  isolation_radius_arcsec: 0.2
+  match_constraint_arcsec: 1.0
+photometry:
+  mode: "star"
+  coords: [10.0, 20.0]
+  filter: "R"
+  aperture_method: "fixed_pixel"
+  aperture: 4
+  annulus_inner: 6
+  annulus_outer: 8
+  zeropoint: "fit"
+  export_reference_star_timeseries: true
+paths:
+  input_dir: "input"
+  temp_dir: "temp"
+  index_dir: "indexes"
+  solve_dir: "output"
+  output_photometry: "photometry.csv"
+  output_astrometry: "astrometry.csv"
+  output_reference_star_timeseries: "reference_star_timeseries.csv"
+  file_extension: "fits"
+plots:
+  plot_astrometry: false
+  plot_image: false
+  image_scale: "pixel"
+catalog: "gaiadr3.gaia_source"
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    header = fits.Header()
+    header["OBJCTRA"] = "10:00:00"
+    header["OBJCTDEC"] = "20:00:00"
+    header["DATE-OBS"] = "2026-03-26T00:00:00"
+    header["MJD-OBS"] = 61125.0
+    header["EXPTIME"] = 30.0
+    header["JD"] = 2461125.5
+    fits.writeto(input_dir / "frame01.fits", data=np.ones((80, 80)), header=header, overwrite=True)
+
+    config = load_config(config_path)
+    runner = PipelineRunner(
+        config=config,
+        astrometry_solver=FakeAstrometrySolver(config),
+        photometry=FakePhotometry(config),
+        target_manager=FakeTargetManager(),
+    )
+    summary = runner.run()
+
+    assert summary.measured_files == 1
+    reference_frame = pd.read_csv(config.paths.reference_star_timeseries_csv_path)
+    assert len(reference_frame) == 5
+    assert {
+        "filename",
+        "jd",
+        "source_id",
+        "gaia_gmag",
+        "bp_rp",
+        "x",
+        "y",
+        "mag_inst",
+        "zp",
+        "mag_calib",
+        "mag_err",
+        "zp_inlier",
+    }.issubset(reference_frame.columns)
+    assert reference_frame["source_id"].tolist() == [101, 102, 103, 104, 105]
+    assert reference_frame["zp_inlier"].tolist() == [True, True, True, False, True]
 
 
 def test_astrometry_solver_existing_wcs_returns_original_frame(tmp_path: Path) -> None:

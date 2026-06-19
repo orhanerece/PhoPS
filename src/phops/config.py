@@ -68,6 +68,20 @@ def _parse_optional_float_pair(section: str, value: Any) -> tuple[float, float] 
         raise ConfigurationError(f"'{section}' must contain numeric values.") from exc
 
 
+def _parse_bool(section: str, value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "1", "on"}:
+            return True
+        if normalized in {"false", "no", "0", "off"}:
+            return False
+    raise ConfigurationError(f"'{section}' must be a boolean value.")
+
+
 @dataclass
 class FitsKeywordsConfig:
     ra_key: str = "RA"
@@ -186,6 +200,7 @@ class PhotometryConfig:
     annulus_inner: float = 7.0
     annulus_outer: float = 9.0
     zeropoint: ZeroPointMode = "fit"
+    export_reference_star_timeseries: bool = False
 
     @classmethod
     def from_mapping(cls, mapping: dict[str, Any]) -> PhotometryConfig:
@@ -201,6 +216,11 @@ class PhotometryConfig:
             annulus_inner=float(mapping.get("annulus_inner", 7.0)),
             annulus_outer=float(mapping.get("annulus_outer", 9.0)),
             zeropoint=str(mapping.get("zeropoint", "fit")),
+            export_reference_star_timeseries=_parse_bool(
+                "photometry.export_reference_star_timeseries",
+                mapping.get("export_reference_star_timeseries"),
+                default=False,
+            ),
         )
 
     def validate(self) -> None:
@@ -228,6 +248,7 @@ class PathsConfig:
     file_extension: str = "fits"
     output_photometry: str = "photometry.csv"
     output_astrometry: str = "astrometry.csv"
+    output_reference_star_timeseries: str = "reference_star_timeseries.csv"
     plot_dir: Path | None = None
     cutout_dir: Path | None = None
 
@@ -245,6 +266,9 @@ class PathsConfig:
             file_extension=str(mapping.get("file_extension", "fits")).lstrip("."),
             output_photometry=str(mapping.get("output_photometry", "photometry.csv")),
             output_astrometry=str(mapping.get("output_astrometry", "astrometry.csv")),
+            output_reference_star_timeseries=str(
+                mapping.get("output_reference_star_timeseries", "reference_star_timeseries.csv")
+            ),
             plot_dir=_resolve_path(base_dir, plot_dir_value) if plot_dir_value else solve_dir / "plots",
             cutout_dir=_resolve_path(base_dir, cutout_dir_value) if cutout_dir_value else solve_dir / "cutouts",
         )
@@ -256,6 +280,10 @@ class PathsConfig:
     @property
     def astrometry_csv_path(self) -> Path:
         return self.solve_dir / self.output_astrometry
+
+    @property
+    def reference_star_timeseries_csv_path(self) -> Path:
+        return self.solve_dir / self.output_reference_star_timeseries
 
     @property
     def run_state_path(self) -> Path:

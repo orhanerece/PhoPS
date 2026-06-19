@@ -19,6 +19,8 @@ phops init-config config.yaml
   Pixel scale, gain, read noise, and saturation level.
 - `photometry`
   Target mode, filter, aperture settings, and zeropoint behavior.
+- `photometry.export_reference_star_timeseries`
+  Optional export of calibrated per-frame photometry for valid reference stars used in calibration.
 - `paths`
   Input directory, working directories, output filenames, and optional plot/cutout folders.
 - `plots`
@@ -64,6 +66,7 @@ For occultation work, `star` mode is usually the better default. In many campaig
 - Relative paths are resolved against the config file location.
 - Only runtime directories are created automatically.
 - Output CSV files are always written inside `paths.solve_dir`.
+- `paths.output_reference_star_timeseries` controls the optional reference-star CSV filename.
 - `paths.file_extension` can be a simple suffix like `fits` or a glob pattern like `*_flc.fits`.
 - When `paths.file_extension` is set to a FITS-family value (`fits`, `fit`, `fts`, and `.gz` variants), PhoPS matches all common FITS filename variants automatically.
 - PhoPS also keeps a hidden `.phops-run-state.json` checkpoint inside `paths.solve_dir` so interrupted runs can be resumed safely.

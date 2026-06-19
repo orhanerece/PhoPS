@@ -6,7 +6,9 @@ from phops.config import load_config
 def test_load_example_config() -> None:
     config = load_config(Path("examples/example_config.yaml"))
     assert config.photometry.mode == "asteroid"
+    assert config.photometry.export_reference_star_timeseries is False
     assert config.paths.output_photometry == "photometry.csv"
+    assert config.paths.output_reference_star_timeseries == "reference_star_timeseries.csv"
     assert config.paths.solve_dir.name == "output"
 
 
