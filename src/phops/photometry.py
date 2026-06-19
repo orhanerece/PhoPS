@@ -362,7 +362,10 @@ class Photometry:
         object_radii = np.asarray(object_radii, dtype=float)
         finite_objects = np.isfinite(object_radii)
         errors = np.full(object_radii.shape, np.nan, dtype=float)
-        inlier_mask = np.asarray(matched_table["zp_inlier"], dtype=bool) if "zp_inlier" in matched_table.colnames else np.zeros(len(matched_table), dtype=bool)
+        if "zp_inlier" in matched_table.colnames:
+            inlier_mask = np.asarray(matched_table["zp_inlier"], dtype=bool)
+        else:
+            inlier_mask = np.zeros(len(matched_table), dtype=bool)        
         mag_diff_all = np.asarray(matched_table["standard_mag"] - matched_table["inst_mag"], dtype=float)
         radius_all = np.asarray(matched_table["r_dist"], dtype=float)
         valid = inlier_mask & np.isfinite(mag_diff_all) & np.isfinite(radius_all)
