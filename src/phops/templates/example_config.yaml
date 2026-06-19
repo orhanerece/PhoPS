@@ -45,6 +45,23 @@ photometry:
   annulus_inner: 7
   annulus_outer: 9
   zeropoint: "fit"
+  export_reference_star_timeseries: false
+  ransac_threshold_mode: "auto"
+  ransac_threshold: 0.10
+  ransac_threshold_grid:
+    start: 0.01
+    stop: 0.20
+    step: 0.01
+  ransac_auto_method: "inlier_knee"
+  ransac_auto_min_inliers: 30
+  ransac_auto_fallback_threshold: 0.10
+  ransac_auto_reuse_for_sequence: true
+  zp_error_method: "bootstrap"
+  zp_bootstrap_iterations: 1000
+  zp_bootstrap_random_seed: 42
+  zp_bootstrap_min_inliers: 30
+  write_analysis_summary: true
+  analysis_summary_filename: "phops_analysis_summary.yaml"
 
 paths:
   input_dir: "A"
@@ -53,6 +70,7 @@ paths:
   solve_dir: "output"
   output_photometry: "photometry.csv"
   output_astrometry: "astrometry.csv"
+  output_reference_star_timeseries: "reference_star_timeseries.csv"
   file_extension: "fits"
   plot_dir: "output/plots"
   cutout_dir: "output/cutouts"

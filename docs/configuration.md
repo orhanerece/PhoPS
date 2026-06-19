@@ -19,6 +19,12 @@ phops init-config config.yaml
   Pixel scale, gain, read noise, and saturation level.
 - `photometry`
   Target mode, filter, aperture settings, and zeropoint behavior.
+- `photometry.export_reference_star_timeseries`
+  Optional export of calibrated per-frame photometry for valid reference stars used in calibration.
+- `photometry.ransac_threshold_mode`
+  `fixed` uses `photometry.ransac_threshold` for every frame; `auto` selects one threshold from the first valid frame and reuses it for the sequence.
+- `photometry.zp_error_method`
+  `bootstrap` estimates the zero-point model uncertainty from the final RANSAC inlier reference-star set.
 - `paths`
   Input directory, working directories, output filenames, and optional plot/cutout folders.
 - `plots`
@@ -54,6 +60,41 @@ photometry:
 
 For occultation work, `star` mode is usually the better default. In many campaigns the exposure time is tuned to the target star, and the occulting body is too faint to measure reliably in individual frames even for positive events.
 
+## Photometric Calibration Uncertainty
+PhoPS supports fixed and automatic RANSAC thresholds for the radial zero-point fit. In fixed mode, `photometry.ransac_threshold` is used for every image. In auto mode, PhoPS evaluates `photometry.ransac_threshold_grid` on the first valid image, counts RANSAC inliers at each threshold, monotonises the inlier-count curve, and selects the knee using `photometry.ransac_auto_method: "inlier_knee"`. The selected threshold is reused for subsequent images when `photometry.ransac_auto_reuse_for_sequence` is true.
+
+The zero-point uncertainty is estimated with bootstrap resampling when `photometry.zp_error_method: "bootstrap"`. For each image, PhoPS resamples the final RANSAC inlier reference stars, refits the radial zero-point model, and evaluates the bootstrap models at each measured object radius. The reported total uncertainty is written to the final `mag_err` column:
+
+```text
+mag_err = sqrt(sigma_formal^2 + sigma_ZP_boot^2)
+```
+
+The formal aperture-photometry uncertainty remains available internally for this calculation, and `snr` remains based on the photometric measurement. The separate `sigma_total` column is not written to final photometry tables. `zp_scatter` is a diagnostic residual scatter of the final zero-point fit and is not added directly to the reported uncertainty.
+
+The RANSAC threshold can be selected automatically from the first valid image of a sequence by analysing the saturation behaviour of the inlier count as a function of threshold. The threshold corresponding to the knee of the monotonised inlier-count curve is adopted and reused for all subsequent images. For each image, the final inlier reference-star sample is bootstrapped to estimate the zero-point uncertainty at the position of each measured source. The final total uncertainty is the quadratic sum of the formal aperture-photometry error and the bootstrap zero-point uncertainty.
+
+Relevant options:
+
+```yaml
+photometry:
+  ransac_threshold_mode: "auto"
+  ransac_threshold: 0.10
+  ransac_threshold_grid:
+    start: 0.01
+    stop: 0.20
+    step: 0.01
+  ransac_auto_method: "inlier_knee"
+  ransac_auto_min_inliers: 30
+  ransac_auto_fallback_threshold: 0.10
+  ransac_auto_reuse_for_sequence: true
+  zp_error_method: "bootstrap"
+  zp_bootstrap_iterations: 1000
+  zp_bootstrap_random_seed: 42
+  zp_bootstrap_min_inliers: 30
+  write_analysis_summary: true
+  analysis_summary_filename: "phops_analysis_summary.yaml"
+```
+
 ## Astrometry Solve Mode
 - `astrometry.solve_mode: solve`
   Default mode. PhoPS runs `solve-field` and produces a solved FITS file.
@@ -64,6 +105,8 @@ For occultation work, `star` mode is usually the better default. In many campaig
 - Relative paths are resolved against the config file location.
 - Only runtime directories are created automatically.
 - Output CSV files are always written inside `paths.solve_dir`.
+- `paths.output_reference_star_timeseries` controls the optional reference-star CSV filename.
+- `photometry.analysis_summary_filename` controls the optional calibration summary filename inside `paths.solve_dir`.
 - `paths.file_extension` can be a simple suffix like `fits` or a glob pattern like `*_flc.fits`.
 - When `paths.file_extension` is set to a FITS-family value (`fits`, `fit`, `fts`, and `.gz` variants), PhoPS matches all common FITS filename variants automatically.
 - PhoPS also keeps a hidden `.phops-run-state.json` checkpoint inside `paths.solve_dir` so interrupted runs can be resumed safely.
