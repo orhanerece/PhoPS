@@ -90,13 +90,13 @@ phops gui -c config.yaml
 ## Photometric Uncertainties
 PhoPS can use either a fixed RANSAC threshold or an automatic threshold for the radial zero-point model. In automatic mode, the threshold is selected once from the first valid image by finding the knee of the monotonised inlier-count curve, then reused for the rest of the sequence. After the final RANSAC fit for each image, PhoPS bootstraps the final inlier reference-star sample to estimate the zero-point uncertainty at each measured source radius.
 
-The target and optional reference-star tables keep `mag_err` as the formal aperture-photometry uncertainty and add `sigma_total`:
+The target and optional reference-star tables report the total photometric uncertainty in `mag_err`:
 
 ```text
-sigma_total = sqrt(mag_err^2 + sigma_ZP_boot^2)
+mag_err = sqrt(sigma_formal^2 + sigma_ZP_boot^2)
 ```
 
-`zp_scatter` is retained as a diagnostic quality metric for the zero-point fit and is not added directly to the formal uncertainty budget. When enabled, `phops_analysis_summary.yaml` records the threshold choice, inlier counts, zero-point fit diagnostics, bootstrap settings, and per-image uncertainty summaries.
+The formal aperture-photometry uncertainty is still computed internally, and `snr` is unchanged. The separate `sigma_total` column is not written to final photometry tables. `zp_scatter` is retained as a diagnostic quality metric for the zero-point fit and is not added directly to the formal uncertainty budget. When enabled, `phops_analysis_summary.yaml` records the input path, output path, runtime, threshold choice, inlier/outlier counts, zero-point fit diagnostics, bootstrap settings, and per-image uncertainty summaries.
 
 ## Commands
 - `phops run -c config.yaml`

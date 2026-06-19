@@ -213,6 +213,56 @@ def _write_analysis_summary(path: Path, payload: dict[str, object]) -> None:
     path.write_text(yaml.safe_dump(_json_safe(payload), sort_keys=False), encoding="utf-8")
 
 
+def _migrate_uncertainty_output_csv(path: Path) -> None:
+    if not path.exists():
+        return
+    try:
+        frame = pd.read_csv(path)
+    except Exception:
+        return
+    if "sigma_total" not in frame.columns:
+        return
+    if "mag_err" in frame.columns:
+        frame["mag_err"] = frame["sigma_total"]
+    frame.drop(columns=["sigma_total"]).to_csv(path, index=False)
+
+
+def _summary_median(per_image: list[dict[str, object]], key: str) -> float:
+    values: list[float] = []
+    for item in per_image:
+        if item.get("status") != "measured":
+            continue
+        value = item.get(key)
+        if value is None:
+            continue
+        value_float = float(value)
+        if np.isfinite(value_float):
+            values.append(value_float)
+    return float(np.median(values)) if values else np.nan
+
+
+def _summary_sum(per_image: list[dict[str, object]], key: str) -> int:
+    total = 0
+    for item in per_image:
+        if item.get("status") != "measured":
+            continue
+        value = item.get(key)
+        if value is None:
+            continue
+        value_float = float(value)
+        if np.isfinite(value_float):
+            total += int(value_float)
+    return total
+
+
+def _ransac_outlier_count(diagnostics: dict[str, object]) -> int | None:
+    valid = diagnostics.get("n_valid_reference_stars")
+    inliers = diagnostics.get("n_ransac_inliers")
+    if valid is None or inliers is None:
+        return None
+    return int(valid) - int(inliers)
+
+
 def _reference_star_timeseries_rows(
     *,
     filename: str,
@@ -244,7 +294,7 @@ def _reference_star_timeseries_rows(
             continue
 
         zeropoint = float(zp_average) if zeropoint_mode == "average" else float(zp_function(radius))
-        sigma_total = _quadrature_sigma(mag_err, float(zp_errors[index]))
+        reported_mag_err = _quadrature_sigma(mag_err, float(zp_errors[index]))
         rows.append(
             {
                 "filename": filename,
@@ -257,8 +307,7 @@ def _reference_star_timeseries_rows(
                 "mag_inst": inst_mag,
                 "zp": zeropoint,
                 "mag_calib": float(inst_mag + zeropoint),
-                "mag_err": mag_err,
-                "sigma_total": sigma_total,
+                "mag_err": reported_mag_err,
                 "zp_inlier": bool(star["zp_inlier"]) if "zp_inlier" in measured_stars.colnames else "",
                 "standard_mag": standard_mag,
                 "snr": _as_float(star["snr"]) if "snr" in measured_stars.colnames else np.nan,
@@ -415,6 +464,8 @@ class PipelineRunner:
                 analysis_summary_path.unlink(missing_ok=True)
             run_state_path.unlink(missing_ok=True)
         elif resume:
+            _migrate_uncertainty_output_csv(photometry_csv)
+            _migrate_uncertainty_output_csv(reference_star_timeseries_csv)
             completed_frames = _deduplicate_photometry_csv(photometry_csv)
             completed_frames |= _load_checkpoint_frames(run_state_path, self.config.paths.input_dir) & {path.name for path in input_files}
             _prune_astrometry_csv(astrometry_csv, completed_frames)
@@ -634,6 +685,7 @@ class PipelineRunner:
                             "selected_threshold": selected_threshold,
                             "n_valid_reference_stars": zp_diagnostics.get("n_valid_reference_stars"),
                             "n_ransac_inliers": zp_diagnostics.get("n_ransac_inliers"),
+                            "n_ransac_outliers": _ransac_outlier_count(zp_diagnostics),
                             "zp_slope": zp_diagnostics.get("zp_slope"),
                             "zp_intercept": zp_diagnostics.get("zp_intercept"),
                             "zp_scatter": zp_scatter,
@@ -672,7 +724,7 @@ class PipelineRunner:
                     for formal_error, zp_error in zip(reference_formal_errors, reference_zp_errors)
                 ]
                 all_sigma_total = [target_sigma_total, *reference_sigma_total]
-                sigma_stats = _finite_stats(all_sigma_total)
+                mag_err_stats = _finite_stats(all_sigma_total)
                 if zp_error_summary.get("warning"):
                     frame_summary["warnings"] = [*frame_summary.get("warnings", []), zp_error_summary["warning"]]
 
@@ -694,8 +746,7 @@ class PipelineRunner:
                     "mag_inst": target_result["mag_inst"],
                     "mag_calib": target_result["mag_calib"],
                     "snr": target_result["snr"],
-                    "mag_err": target_result["err"],
-                    "sigma_total": target_sigma_total,
+                    "mag_err": target_sigma_total,
                     "x_target": target_result["x"],
                     "y_target": target_result["y"],
                     "bg": target_result["BG"],
@@ -719,6 +770,7 @@ class PipelineRunner:
                         "selected_threshold": selected_threshold,
                         "n_valid_reference_stars": zp_diagnostics.get("n_valid_reference_stars"),
                         "n_ransac_inliers": zp_diagnostics.get("n_ransac_inliers"),
+                        "n_ransac_outliers": _ransac_outlier_count(zp_diagnostics),
                         "zp_slope": zp_diagnostics.get("zp_slope"),
                         "zp_intercept": zp_diagnostics.get("zp_intercept"),
                         "zp_scatter": zp_scatter,
@@ -726,9 +778,9 @@ class PipelineRunner:
                         "zp_bootstrap_error_median": zp_error_summary.get("zp_bootstrap_error_median"),
                         "zp_bootstrap_error_min": zp_error_summary.get("zp_bootstrap_error_min"),
                         "zp_bootstrap_error_max": zp_error_summary.get("zp_bootstrap_error_max"),
-                        "sigma_total_median": sigma_stats["median"],
-                        "sigma_total_min": sigma_stats["min"],
-                        "sigma_total_max": sigma_stats["max"],
+                        "mag_err_median": mag_err_stats["median"],
+                        "mag_err_min": mag_err_stats["min"],
+                        "mag_err_max": mag_err_stats["max"],
                     }
                 )
                 per_image_summary.append(frame_summary)
@@ -828,11 +880,15 @@ class PipelineRunner:
 
         if self.config.photometry.write_analysis_summary:
             finished_at = datetime.now(timezone.utc)
+            total_runtime_seconds = time.perf_counter() - run_timer
             summary_payload = {
                 "run": {
+                    "input_path": str(self.config.paths.input_dir),
+                    "output_path": str(self.config.paths.solve_dir),
                     "started_at": run_started_at.isoformat(),
                     "finished_at": finished_at.isoformat(),
-                    "total_runtime_seconds": time.perf_counter() - run_timer,
+                    "total_runtime_seconds": total_runtime_seconds,
+                    "total_runtime_minutes": total_runtime_seconds / 60.0,
                     "number_of_images_input": len(input_files),
                     "number_of_images_processed": measured_files,
                     "number_of_images_failed": skipped_files,
@@ -851,6 +907,17 @@ class PipelineRunner:
                     "bootstrap_iterations": self.config.photometry.zp_bootstrap_iterations,
                     "bootstrap_random_seed": self.config.photometry.zp_bootstrap_random_seed,
                     "zp_error_method": self.config.photometry.zp_error_method,
+                    "export_reference_star_timeseries": self.config.photometry.export_reference_star_timeseries,
+                },
+                "photometry_summary": {
+                    "total_reference_stars_used": _summary_sum(per_image_summary, "n_valid_reference_stars"),
+                    "total_ransac_inliers": _summary_sum(per_image_summary, "n_ransac_inliers"),
+                    "total_ransac_outliers": _summary_sum(per_image_summary, "n_ransac_outliers"),
+                    "median_ransac_inliers_per_frame": _summary_median(per_image_summary, "n_ransac_inliers"),
+                    "median_ransac_outliers_per_frame": _summary_median(per_image_summary, "n_ransac_outliers"),
+                    "median_zp_scatter": _summary_median(per_image_summary, "zp_scatter"),
+                    "median_zp_bootstrap_error": _summary_median(per_image_summary, "zp_bootstrap_error_median"),
+                    "median_mag_err": _summary_median(per_image_summary, "mag_err_median"),
                 },
                 "threshold_selection": threshold_selection,
                 "per_image": per_image_summary,

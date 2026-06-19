@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 from astropy.io import fits
 from astropy.table import Table
 from astropy.time import Time
@@ -340,7 +341,6 @@ catalog: "gaiadr3.gaia_source"
         "mag_calib",
         "snr",
         "mag_err",
-        "sigma_total",
         "x_target",
         "y_target",
         "bg",
@@ -348,9 +348,32 @@ catalog: "gaiadr3.gaia_source"
         "zp_scatter",
         "fwhm",
     ]
-    assert photometry_frame["mag_err"].tolist() == [0.01]
-    assert np.isclose(photometry_frame["sigma_total"].iloc[0], np.sqrt(0.01**2 + 0.02**2))
-    assert (output_dir / "phops_analysis_summary.yaml").exists()
+    assert "sigma_total" not in photometry_frame.columns
+    assert photometry_frame["snr"].tolist() == [100.0]
+    assert np.isclose(photometry_frame["mag_err"].iloc[0], np.sqrt(0.01**2 + 0.02**2))
+
+    summary_path = output_dir / "phops_analysis_summary.yaml"
+    assert summary_path.exists()
+    summary_payload = yaml.safe_load(summary_path.read_text(encoding="utf-8"))
+    assert summary_payload["run"]["input_path"] == str(config.paths.input_dir)
+    assert summary_payload["run"]["output_path"] == str(config.paths.solve_dir)
+    assert summary_payload["run"]["started_at"]
+    assert summary_payload["run"]["finished_at"]
+    assert summary_payload["run"]["total_runtime_seconds"] >= 0
+    assert np.isclose(
+        summary_payload["run"]["total_runtime_minutes"],
+        summary_payload["run"]["total_runtime_seconds"] / 60,
+    )
+    assert summary_payload["configuration"]["selected_threshold"] == 0.10
+    assert summary_payload["configuration"]["export_reference_star_timeseries"] is False
+    assert summary_payload["photometry_summary"]["total_ransac_inliers"] == 4
+    assert summary_payload["photometry_summary"]["total_ransac_outliers"] == 1
+    assert summary_payload["per_image"][0]["n_ransac_outliers"] == 1
+    expected_exported_errors = [
+        np.sqrt(0.01**2 + 0.02**2),
+        *np.sqrt(np.array([0.01, 0.011, 0.012, 0.013, 0.014]) ** 2 + 0.02**2),
+    ]
+    assert np.isclose(summary_payload["per_image"][0]["mag_err_median"], np.median(expected_exported_errors))
 
 
 def test_pipeline_runner_writes_reference_star_timeseries_when_enabled(tmp_path: Path) -> None:
@@ -442,13 +465,13 @@ catalog: "gaiadr3.gaia_source"
         "zp",
         "mag_calib",
         "mag_err",
-        "sigma_total",
         "zp_inlier",
     }.issubset(reference_frame.columns)
+    assert "sigma_total" not in reference_frame.columns
     assert reference_frame["source_id"].tolist() == [101, 102, 103, 104, 105]
     assert reference_frame["zp_inlier"].tolist() == [True, True, True, False, True]
-    assert reference_frame["mag_err"].tolist() == [0.01, 0.011, 0.012, 0.013, 0.014]
-    assert np.allclose(reference_frame["sigma_total"], np.sqrt(reference_frame["mag_err"] ** 2 + 0.02**2))
+    assert reference_frame["snr"].tolist() == [100.0, 90.0, 80.0, 70.0, 60.0]
+    assert np.allclose(reference_frame["mag_err"], np.sqrt(np.array([0.01, 0.011, 0.012, 0.013, 0.014]) ** 2 + 0.02**2))
 
 
 def test_pipeline_auto_threshold_is_selected_once_and_reused(tmp_path: Path) -> None:

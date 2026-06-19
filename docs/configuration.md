@@ -63,13 +63,13 @@ For occultation work, `star` mode is usually the better default. In many campaig
 ## Photometric Calibration Uncertainty
 PhoPS supports fixed and automatic RANSAC thresholds for the radial zero-point fit. In fixed mode, `photometry.ransac_threshold` is used for every image. In auto mode, PhoPS evaluates `photometry.ransac_threshold_grid` on the first valid image, counts RANSAC inliers at each threshold, monotonises the inlier-count curve, and selects the knee using `photometry.ransac_auto_method: "inlier_knee"`. The selected threshold is reused for subsequent images when `photometry.ransac_auto_reuse_for_sequence` is true.
 
-The zero-point uncertainty is estimated with bootstrap resampling when `photometry.zp_error_method: "bootstrap"`. For each image, PhoPS resamples the final RANSAC inlier reference stars, refits the radial zero-point model, and evaluates the bootstrap models at each measured object radius. The reported total uncertainty is written as `sigma_total`:
+The zero-point uncertainty is estimated with bootstrap resampling when `photometry.zp_error_method: "bootstrap"`. For each image, PhoPS resamples the final RANSAC inlier reference stars, refits the radial zero-point model, and evaluates the bootstrap models at each measured object radius. The reported total uncertainty is written to the final `mag_err` column:
 
 ```text
-sigma_total = sqrt(mag_err^2 + sigma_ZP_boot^2)
+mag_err = sqrt(sigma_formal^2 + sigma_ZP_boot^2)
 ```
 
-Here `mag_err` remains the formal aperture-photometry uncertainty. `zp_scatter` is a diagnostic residual scatter of the final zero-point fit and is not added directly to `sigma_total`.
+The formal aperture-photometry uncertainty remains available internally for this calculation, and `snr` remains based on the photometric measurement. The separate `sigma_total` column is not written to final photometry tables. `zp_scatter` is a diagnostic residual scatter of the final zero-point fit and is not added directly to the reported uncertainty.
 
 The RANSAC threshold can be selected automatically from the first valid image of a sequence by analysing the saturation behaviour of the inlier count as a function of threshold. The threshold corresponding to the knee of the monotonised inlier-count curve is adopted and reused for all subsequent images. For each image, the final inlier reference-star sample is bootstrapped to estimate the zero-point uncertainty at the position of each measured source. The final total uncertainty is the quadratic sum of the formal aperture-photometry error and the bootstrap zero-point uncertainty.
 
