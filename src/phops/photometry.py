@@ -32,6 +32,63 @@ from .target import TargetInfo
 from .utils import load_fits_image, safe_stem
 
 
+def select_threshold_by_inlier_knee(
+    thresholds,
+    n_inliers,
+    min_inliers: int = 30,
+    fallback_threshold: float = 0.10,
+) -> tuple[float, dict[str, object]]:
+    """Select a RANSAC threshold from the knee of the inlier-count curve."""
+
+    thresholds = np.asarray(thresholds, dtype=float)
+    n_inliers = np.asarray(n_inliers, dtype=float)
+
+    order = np.argsort(thresholds)
+    thresholds = thresholds[order]
+    n_inliers = n_inliers[order]
+
+    n_mono = np.maximum.accumulate(n_inliers)
+
+    if len(thresholds) < 3 or n_mono.max() == n_mono.min():
+        return fallback_threshold, {
+            "status": "fallback",
+            "reason": "degenerate_inlier_curve",
+        }
+
+    x = (thresholds - thresholds.min()) / (thresholds.max() - thresholds.min())
+    y = (n_mono - n_mono.min()) / (n_mono.max() - n_mono.min())
+
+    d = y - x
+    knee_idx = int(np.argmax(d))
+    t_opt = float(thresholds[knee_idx])
+    n_opt = int(n_inliers[knee_idx])
+
+    if n_opt < min_inliers:
+        return fallback_threshold, {
+            "status": "fallback",
+            "reason": "insufficient_inliers_at_knee",
+            "t_knee": t_opt,
+            "n_inliers_at_knee": n_opt,
+        }
+
+    return t_opt, {
+        "status": "ok",
+        "t_knee": t_opt,
+        "n_inliers_at_knee": n_opt,
+        "thresholds": thresholds.tolist(),
+        "n_inliers": n_inliers.astype(int).tolist(),
+        "n_inliers_monotonic": n_mono.astype(int).tolist(),
+        "knee_metric": d.tolist(),
+    }
+
+
+def _dof_corrected_scatter(residuals: np.ndarray, n_parameters: int = 2) -> float:
+    residuals = np.asarray(residuals, dtype=float)
+    if residuals.size <= n_parameters:
+        return float(np.std(residuals)) if residuals.size else np.nan
+    return float(np.sqrt(np.sum(residuals**2) / (residuals.size - n_parameters)))
+
+
 class Photometry:
     """Photometry engine."""
 
@@ -243,26 +300,137 @@ class Photometry:
         )
         return measured_table, median_fwhm
 
+    def _zeropoint_candidates(self, matched_table: Table) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        mag_diff = np.asarray(matched_table["standard_mag"] - matched_table["inst_mag"], dtype=float)
+        radius = np.asarray(matched_table["r_dist"], dtype=float)
+        valid_mask = np.isfinite(mag_diff) & np.isfinite(radius)
+        return valid_mask, radius[valid_mask], mag_diff[valid_mask]
+
+    def _fit_zeropoint_ransac(
+        self,
+        radius: np.ndarray,
+        mag_diff: np.ndarray,
+        residual_threshold: float,
+    ) -> dict[str, object]:
+        x_data = np.asarray(radius, dtype=float).reshape(-1, 1)
+        y_data = np.asarray(mag_diff, dtype=float).reshape(-1, 1)
+        ransac = RANSACRegressor(residual_threshold=float(residual_threshold), random_state=100)
+        ransac.fit(x_data, y_data)
+        inlier_mask = np.asarray(ransac.inlier_mask_, dtype=bool)
+        slope = float(ransac.estimator_.coef_[0][0])
+        intercept = float(ransac.estimator_.intercept_[0])
+        zeropoint_function = np.poly1d([slope, intercept])
+        inlier_residuals = mag_diff[inlier_mask] - zeropoint_function(radius[inlier_mask])
+        return {
+            "function": zeropoint_function,
+            "inlier_mask": inlier_mask,
+            "slope": slope,
+            "intercept": intercept,
+            "scatter": _dof_corrected_scatter(inlier_residuals),
+            "average": float(np.average(mag_diff[inlier_mask])) if np.any(inlier_mask) else float(np.nanmean(mag_diff)),
+        }
+
+    def scan_ransac_thresholds(self, matched_table: Table, thresholds: np.ndarray) -> dict[str, list[float] | list[int]]:
+        """Count final RANSAC inliers over a threshold grid."""
+
+        _, radius, mag_diff = self._zeropoint_candidates(matched_table)
+        counts: list[int] = []
+        scatters: list[float] = []
+        for threshold in thresholds:
+            if len(mag_diff) < 4:
+                counts.append(0)
+                scatters.append(np.nan)
+                continue
+            fit = self._fit_zeropoint_ransac(radius, mag_diff, float(threshold))
+            inlier_mask = np.asarray(fit["inlier_mask"], dtype=bool)
+            counts.append(int(np.sum(inlier_mask)))
+            scatters.append(float(fit["scatter"]))
+        return {
+            "thresholds": np.asarray(thresholds, dtype=float).tolist(),
+            "n_inliers": counts,
+            "zp_scatter": scatters,
+        }
+
+    def bootstrap_zeropoint_uncertainty(
+        self,
+        matched_table: Table,
+        object_radii: np.ndarray,
+        rng: np.random.Generator,
+    ) -> tuple[np.ndarray, dict[str, object]]:
+        """Bootstrap the fitted zeropoint model at object-specific radii."""
+
+        object_radii = np.asarray(object_radii, dtype=float)
+        finite_objects = np.isfinite(object_radii)
+        errors = np.full(object_radii.shape, np.nan, dtype=float)
+        inlier_mask = np.asarray(matched_table["zp_inlier"], dtype=bool) if "zp_inlier" in matched_table.colnames else np.zeros(len(matched_table), dtype=bool)
+        mag_diff_all = np.asarray(matched_table["standard_mag"] - matched_table["inst_mag"], dtype=float)
+        radius_all = np.asarray(matched_table["r_dist"], dtype=float)
+        valid = inlier_mask & np.isfinite(mag_diff_all) & np.isfinite(radius_all)
+        radius = radius_all[valid]
+        mag_diff = mag_diff_all[valid]
+        n_inliers = int(len(mag_diff))
+        min_inliers = self.config.photometry.zp_bootstrap_min_inliers
+        iterations = self.config.photometry.zp_bootstrap_iterations
+
+        if n_inliers < min_inliers:
+            warning = f"bootstrap requires at least {min_inliers} RANSAC inliers; got {n_inliers}"
+            return errors, {
+                "zp_error_method_used": "bootstrap_failed",
+                "warning": warning,
+                "n_inliers": n_inliers,
+            }
+
+        if not np.any(finite_objects):
+            return errors, {
+                "zp_error_method_used": "bootstrap",
+                "n_inliers": n_inliers,
+            }
+
+        predictions = np.empty((iterations, int(np.sum(finite_objects))), dtype=float)
+        eval_radii = object_radii[finite_objects]
+        for index in range(iterations):
+            sample = rng.integers(0, n_inliers, size=n_inliers)
+            sample_radius = radius[sample]
+            sample_mag_diff = mag_diff[sample]
+            design = np.column_stack([sample_radius, np.ones(n_inliers)])
+            slope, intercept = np.linalg.lstsq(design, sample_mag_diff, rcond=None)[0]
+            predictions[index] = slope * eval_radii + intercept
+
+        errors[finite_objects] = np.std(predictions, axis=0, ddof=1 if iterations > 1 else 0)
+        finite_errors = errors[np.isfinite(errors)]
+        return errors, {
+            "zp_error_method_used": "bootstrap",
+            "n_inliers": n_inliers,
+            "zp_bootstrap_error_median": float(np.median(finite_errors)) if finite_errors.size else np.nan,
+            "zp_bootstrap_error_min": float(np.min(finite_errors)) if finite_errors.size else np.nan,
+            "zp_bootstrap_error_max": float(np.max(finite_errors)) if finite_errors.size else np.nan,
+        }
+
     def calculate_zeropoint_model(
         self,
         matched_table: Table,
         plot: bool = True,
         save_plot: bool = True,
         output_path: str | Path | None = None,
+        ransac_threshold: float | None = None,
     ) -> tuple[np.poly1d, float, float, float]:
         """Fit a first-order zeropoint model as a function of field radius."""
 
-        mag_diff = np.asarray(matched_table["standard_mag"] - matched_table["inst_mag"], dtype=float)
-        radius = np.asarray(matched_table["r_dist"], dtype=float)
-        valid_mask = np.isfinite(mag_diff) & np.isfinite(radius)
+        valid_mask, radius, mag_diff = self._zeropoint_candidates(matched_table)
         matched_table["zp_valid"] = valid_mask
         matched_table["zp_inlier"] = np.zeros(len(matched_table), dtype=bool)
-        mag_diff = mag_diff[valid_mask]
-        radius = radius[valid_mask]
 
         fallback_average = float(np.nanmean(mag_diff)) if len(mag_diff) else 25.0
         if len(mag_diff) < 4:
             matched_table["zp_inlier"] = valid_mask
+            matched_table.meta["zeropoint_diagnostics"] = {
+                "n_valid_reference_stars": int(np.sum(valid_mask)),
+                "n_ransac_inliers": int(np.sum(valid_mask)),
+                "zp_slope": 0.0,
+                "zp_intercept": fallback_average,
+                "zp_scatter": 0.0,
+                "zp_error_method_used": "not_evaluated",
+            }
             report(
                 self.reporter,
                 "warning",
@@ -271,20 +439,26 @@ class Photometry:
             )
             return np.poly1d([0.0, fallback_average]), 0.0, 0.0, fallback_average
 
-        x_data = radius.reshape(-1, 1)
-        y_data = mag_diff.reshape(-1, 1)
-        ransac = RANSACRegressor(residual_threshold=0.1, random_state=100)
-        ransac.fit(x_data, y_data)
-        inlier_mask = np.asarray(ransac.inlier_mask_, dtype=bool)
+        threshold = self.config.photometry.ransac_threshold if ransac_threshold is None else float(ransac_threshold)
+        fit = self._fit_zeropoint_ransac(radius, mag_diff, threshold)
+        inlier_mask = np.asarray(fit["inlier_mask"], dtype=bool)
         outlier_mask = ~inlier_mask
         full_inlier_mask = np.zeros(len(matched_table), dtype=bool)
         full_inlier_mask[np.where(valid_mask)[0]] = inlier_mask
         matched_table["zp_inlier"] = full_inlier_mask
-        slope = float(ransac.estimator_.coef_[0][0])
-        intercept = float(ransac.estimator_.intercept_[0])
-        zeropoint_function = np.poly1d([slope, intercept])
-        rms_error = float(np.std(y_data[inlier_mask] - zeropoint_function(x_data[inlier_mask])))
-        average_zeropoint = float(np.average(mag_diff[inlier_mask]))
+        slope = float(fit["slope"])
+        intercept = float(fit["intercept"])
+        zeropoint_function = fit["function"]
+        rms_error = float(fit["scatter"])
+        average_zeropoint = float(fit["average"])
+        matched_table.meta["zeropoint_diagnostics"] = {
+            "n_valid_reference_stars": int(np.sum(valid_mask)),
+            "n_ransac_inliers": int(np.sum(inlier_mask)),
+            "zp_slope": slope,
+            "zp_intercept": intercept,
+            "zp_scatter": rms_error,
+            "ransac_threshold_used": threshold,
+        }
 
         report(
             self.reporter,
@@ -450,6 +624,7 @@ class Photometry:
             "dec": float(target.dec),
             "x": float(x_precise),
             "y": float(y_precise),
+            "radius": radius_from_center,
             "mag_inst": float(instrumental_magnitude),
             "zp": float(target_zeropoint),
             "mag_calib": calibrated_magnitude,

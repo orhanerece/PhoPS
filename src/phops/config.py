@@ -19,6 +19,9 @@ ApertureMethod = Literal["fixed_pixel", "fixed_arcsec", "fwhm_factor"]
 ZeroPointMode = Literal["fit", "average"]
 AstrometryMode = Literal["solve", "existing_wcs"]
 CoordinateUnit = Literal["deg", "hourangle_deg"]
+RansacThresholdMode = Literal["auto", "fixed"]
+RansacAutoMethod = Literal["inlier_knee"]
+ZpErrorMethod = Literal["bootstrap"]
 
 
 def _require_mapping(section: str, value: Any) -> dict[str, Any]:
@@ -80,6 +83,28 @@ def _parse_bool(section: str, value: Any, default: bool = False) -> bool:
         if normalized in {"false", "no", "0", "off"}:
             return False
     raise ConfigurationError(f"'{section}' must be a boolean value.")
+
+
+@dataclass
+class RansacThresholdGridConfig:
+    start: float = 0.01
+    stop: float = 0.20
+    step: float = 0.01
+
+    @classmethod
+    def from_mapping(cls, mapping: dict[str, Any] | None) -> RansacThresholdGridConfig:
+        mapping = mapping or {}
+        return cls(
+            start=float(mapping.get("start", 0.01)),
+            stop=float(mapping.get("stop", 0.20)),
+            step=float(mapping.get("step", 0.01)),
+        )
+
+    def validate(self) -> None:
+        if self.step <= 0:
+            raise ConfigurationError("'photometry.ransac_threshold_grid.step' must be positive.")
+        if self.stop < self.start:
+            raise ConfigurationError("'photometry.ransac_threshold_grid.stop' must be greater than or equal to start.")
 
 
 @dataclass
@@ -201,6 +226,19 @@ class PhotometryConfig:
     annulus_outer: float = 9.0
     zeropoint: ZeroPointMode = "fit"
     export_reference_star_timeseries: bool = False
+    ransac_threshold_mode: RansacThresholdMode = "auto"
+    ransac_threshold: float = 0.10
+    ransac_threshold_grid: RansacThresholdGridConfig = field(default_factory=RansacThresholdGridConfig)
+    ransac_auto_method: RansacAutoMethod = "inlier_knee"
+    ransac_auto_min_inliers: int = 30
+    ransac_auto_fallback_threshold: float = 0.10
+    ransac_auto_reuse_for_sequence: bool = True
+    zp_error_method: ZpErrorMethod = "bootstrap"
+    zp_bootstrap_iterations: int = 1000
+    zp_bootstrap_random_seed: int = 42
+    zp_bootstrap_min_inliers: int = 30
+    write_analysis_summary: bool = True
+    analysis_summary_filename: str = "phops_analysis_summary.yaml"
 
     @classmethod
     def from_mapping(cls, mapping: dict[str, Any]) -> PhotometryConfig:
@@ -221,6 +259,32 @@ class PhotometryConfig:
                 mapping.get("export_reference_star_timeseries"),
                 default=False,
             ),
+            ransac_threshold_mode=str(mapping.get("ransac_threshold_mode", "auto")),
+            ransac_threshold=float(mapping.get("ransac_threshold", 0.10)),
+            ransac_threshold_grid=RansacThresholdGridConfig.from_mapping(
+                _require_mapping(
+                    "photometry.ransac_threshold_grid",
+                    mapping.get("ransac_threshold_grid", {}),
+                )
+            ),
+            ransac_auto_method=str(mapping.get("ransac_auto_method", "inlier_knee")),
+            ransac_auto_min_inliers=int(mapping.get("ransac_auto_min_inliers", 30)),
+            ransac_auto_fallback_threshold=float(mapping.get("ransac_auto_fallback_threshold", 0.10)),
+            ransac_auto_reuse_for_sequence=_parse_bool(
+                "photometry.ransac_auto_reuse_for_sequence",
+                mapping.get("ransac_auto_reuse_for_sequence"),
+                default=True,
+            ),
+            zp_error_method=str(mapping.get("zp_error_method", "bootstrap")),
+            zp_bootstrap_iterations=int(mapping.get("zp_bootstrap_iterations", 1000)),
+            zp_bootstrap_random_seed=int(mapping.get("zp_bootstrap_random_seed", 42)),
+            zp_bootstrap_min_inliers=int(mapping.get("zp_bootstrap_min_inliers", 30)),
+            write_analysis_summary=_parse_bool(
+                "photometry.write_analysis_summary",
+                mapping.get("write_analysis_summary"),
+                default=True,
+            ),
+            analysis_summary_filename=str(mapping.get("analysis_summary_filename", "phops_analysis_summary.yaml")),
         )
 
     def validate(self) -> None:
@@ -232,6 +296,23 @@ class PhotometryConfig:
             raise ConfigurationError("'photometry.aperture_method' must be one of: fixed_pixel, fixed_arcsec, fwhm_factor.")
         if self.zeropoint not in {"fit", "average"}:
             raise ConfigurationError("'photometry.zeropoint' must be either 'fit' or 'average'.")
+        if self.ransac_threshold_mode not in {"auto", "fixed"}:
+            raise ConfigurationError("'photometry.ransac_threshold_mode' must be either 'auto' or 'fixed'.")
+        if self.ransac_auto_method != "inlier_knee":
+            raise ConfigurationError("'photometry.ransac_auto_method' must be 'inlier_knee'.")
+        if self.zp_error_method != "bootstrap":
+            raise ConfigurationError("'photometry.zp_error_method' must be 'bootstrap'.")
+        if self.ransac_threshold <= 0:
+            raise ConfigurationError("'photometry.ransac_threshold' must be positive.")
+        if self.ransac_auto_min_inliers < 1:
+            raise ConfigurationError("'photometry.ransac_auto_min_inliers' must be positive.")
+        if self.zp_bootstrap_iterations < 1:
+            raise ConfigurationError("'photometry.zp_bootstrap_iterations' must be positive.")
+        if self.zp_bootstrap_min_inliers < 1:
+            raise ConfigurationError("'photometry.zp_bootstrap_min_inliers' must be positive.")
+        if not self.analysis_summary_filename:
+            raise ConfigurationError("'photometry.analysis_summary_filename' must not be empty.")
+        self.ransac_threshold_grid.validate()
         if self.mode == "asteroid" and not self.target_id:
             raise ConfigurationError("'photometry.target_id' is required when mode is 'asteroid'.")
         if self.mode == "star" and self.coords is None:

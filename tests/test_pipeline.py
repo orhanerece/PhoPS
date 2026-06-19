@@ -67,6 +67,8 @@ class FakeAstrometrySolver:
 class FakePhotometry:
     def __init__(self, config) -> None:
         self.config = config
+        self.scan_count = 0
+        self.thresholds_used: list[float] = []
 
     def get_clean_gaia_matches(self, image_path: Path, gaia_patch: Path):
         del image_path, gaia_patch
@@ -98,14 +100,50 @@ class FakePhotometry:
         matched_table["snr"] = [100.0, 90.0, 80.0, 70.0, 60.0]
         return matched_table, 3.0
 
-    def calculate_zeropoint_model(self, matched_table: Table, save_plot: bool = True, output_path: Path | None = None):
+    def scan_ransac_thresholds(self, matched_table: Table, thresholds):
+        del matched_table
+        self.scan_count += 1
+        thresholds = np.asarray(thresholds, dtype=float)
+        return {
+            "thresholds": thresholds.tolist(),
+            "n_inliers": [3 if threshold < 0.05 else 5 for threshold in thresholds],
+            "zp_scatter": [0.02 for _ in thresholds],
+        }
+
+    def calculate_zeropoint_model(
+        self,
+        matched_table: Table,
+        save_plot: bool = True,
+        output_path: Path | None = None,
+        ransac_threshold: float | None = None,
+    ):
         del save_plot
+        self.thresholds_used.append(float(ransac_threshold) if ransac_threshold is not None else 0.10)
         matched_table["zp_valid"] = [True, True, True, True, True]
         matched_table["zp_inlier"] = [True, True, True, False, True]
+        matched_table.meta["zeropoint_diagnostics"] = {
+            "n_valid_reference_stars": 5,
+            "n_ransac_inliers": 4,
+            "zp_slope": 0.0,
+            "zp_intercept": 25.0,
+            "zp_scatter": 0.02,
+            "ransac_threshold_used": ransac_threshold,
+        }
         if output_path is not None:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text("fake plot", encoding="utf-8")
         return np.poly1d([0.0, 25.0]), 0.02, 0.0, 25.0
+
+    def bootstrap_zeropoint_uncertainty(self, matched_table: Table, object_radii, rng):
+        del matched_table, rng
+        errors = np.full(len(object_radii), 0.02)
+        return errors, {
+            "zp_error_method_used": "bootstrap",
+            "n_inliers": 4,
+            "zp_bootstrap_error_median": 0.02,
+            "zp_bootstrap_error_min": 0.02,
+            "zp_bootstrap_error_max": 0.02,
+        }
 
     def measure_target(self, data, wcs, target, zp_function, median_fwhm, all_detected, filename: str, zp_average: float):
         del data, wcs, target, zp_function, median_fwhm, all_detected, filename, zp_average
@@ -116,6 +154,7 @@ class FakePhotometry:
             "err": 0.01,
             "x": 50.0,
             "y": 60.0,
+            "radius": 22.0,
             "BG": 1.0,
             "zp": 25.0,
         }
@@ -125,6 +164,75 @@ class FakeTargetManager:
     def resolve(self, header) -> TargetInfo:
         del header
         return TargetInfo(ra=10.0, dec=20.0, jd=2460000.5, r=None, delta=None, alpha=None)
+
+
+def _write_pipeline_config(tmp_path: Path, *, photometry_extra: str = "") -> Path:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f"""
+fits_keywords:
+  ra_key: "OBJCTRA"
+  dec_key: "OBJCTDEC"
+  date_key: "DATE-OBS"
+  exposure_key: "EXPTIME"
+  jd_key: "JD"
+astrometry:
+  radius: 0.5
+  quad_scales: [0, 2]
+  cache_tolerance: 0.1
+instrument:
+  pixel_scale: 0.62
+  gain: 1.0
+  read_noise: 5.0
+source_detection:
+  fwhm_guess: 5.0
+  threshold_sigma: 3.0
+  min_area: 5
+  edge_margin: 10
+matching:
+  isolation_radius_arcsec: 0.2
+  match_constraint_arcsec: 1.0
+photometry:
+  mode: "star"
+  coords: [10.0, 20.0]
+  filter: "R"
+  aperture_method: "fixed_pixel"
+  aperture: 4
+  annulus_inner: 6
+  annulus_outer: 8
+  zeropoint: "fit"
+{photometry_extra}
+paths:
+  input_dir: "input"
+  temp_dir: "temp"
+  index_dir: "indexes"
+  solve_dir: "output"
+  output_photometry: "photometry.csv"
+  output_astrometry: "astrometry.csv"
+  file_extension: "fits"
+plots:
+  plot_astrometry: false
+  plot_image: false
+  plot_light_curve: false
+  image_scale: "pixel"
+catalog: "gaiadr3.gaia_source"
+        """.strip(),
+        encoding="utf-8",
+    )
+    return config_path
+
+
+def _write_test_frame(path: Path) -> None:
+    header = fits.Header()
+    header["OBJCTRA"] = "10:00:00"
+    header["OBJCTDEC"] = "20:00:00"
+    header["DATE-OBS"] = "2026-03-26T00:00:00"
+    header["MJD-OBS"] = 61125.0
+    header["EXPTIME"] = 30.0
+    header["JD"] = 2461125.5
+    fits.writeto(path, data=np.ones((80, 80)), header=header, overwrite=True)
 
 
 def test_run_summary_lists_key_output_paths() -> None:
@@ -232,6 +340,7 @@ catalog: "gaiadr3.gaia_source"
         "mag_calib",
         "snr",
         "mag_err",
+        "sigma_total",
         "x_target",
         "y_target",
         "bg",
@@ -239,6 +348,9 @@ catalog: "gaiadr3.gaia_source"
         "zp_scatter",
         "fwhm",
     ]
+    assert photometry_frame["mag_err"].tolist() == [0.01]
+    assert np.isclose(photometry_frame["sigma_total"].iloc[0], np.sqrt(0.01**2 + 0.02**2))
+    assert (output_dir / "phops_analysis_summary.yaml").exists()
 
 
 def test_pipeline_runner_writes_reference_star_timeseries_when_enabled(tmp_path: Path) -> None:
@@ -330,10 +442,60 @@ catalog: "gaiadr3.gaia_source"
         "zp",
         "mag_calib",
         "mag_err",
+        "sigma_total",
         "zp_inlier",
     }.issubset(reference_frame.columns)
     assert reference_frame["source_id"].tolist() == [101, 102, 103, 104, 105]
     assert reference_frame["zp_inlier"].tolist() == [True, True, True, False, True]
+    assert reference_frame["mag_err"].tolist() == [0.01, 0.011, 0.012, 0.013, 0.014]
+    assert np.allclose(reference_frame["sigma_total"], np.sqrt(reference_frame["mag_err"] ** 2 + 0.02**2))
+
+
+def test_pipeline_auto_threshold_is_selected_once_and_reused(tmp_path: Path) -> None:
+    config_path = _write_pipeline_config(
+        tmp_path,
+        photometry_extra="  ransac_auto_min_inliers: 4\n",
+    )
+    _write_test_frame(tmp_path / "input" / "frame01.fits")
+    _write_test_frame(tmp_path / "input" / "frame02.fits")
+
+    config = load_config(config_path)
+    fake_photometry = FakePhotometry(config)
+    runner = PipelineRunner(
+        config=config,
+        astrometry_solver=FakeAstrometrySolver(config),
+        photometry=fake_photometry,
+        target_manager=FakeTargetManager(),
+    )
+
+    summary = runner.run()
+
+    assert summary.measured_files == 2
+    assert fake_photometry.scan_count == 1
+    assert np.allclose(fake_photometry.thresholds_used, [0.05, 0.05])
+
+
+def test_pipeline_fixed_threshold_uses_configured_value(tmp_path: Path) -> None:
+    config_path = _write_pipeline_config(
+        tmp_path,
+        photometry_extra='  ransac_threshold_mode: "fixed"\n  ransac_threshold: 0.07\n',
+    )
+    _write_test_frame(tmp_path / "input" / "frame01.fits")
+
+    config = load_config(config_path)
+    fake_photometry = FakePhotometry(config)
+    runner = PipelineRunner(
+        config=config,
+        astrometry_solver=FakeAstrometrySolver(config),
+        photometry=fake_photometry,
+        target_manager=FakeTargetManager(),
+    )
+
+    summary = runner.run()
+
+    assert summary.measured_files == 1
+    assert fake_photometry.scan_count == 0
+    assert fake_photometry.thresholds_used == [0.07]
 
 
 def test_astrometry_solver_existing_wcs_returns_original_frame(tmp_path: Path) -> None:

@@ -162,6 +162,20 @@ def append_rows_to_csv(path: Path, rows: Iterable[dict[str, object]]) -> None:
     if not row_list:
         return
     frame = pd.DataFrame(row_list)
+    if path.exists():
+        try:
+            existing_header = pd.read_csv(path, nrows=0)
+        except Exception:
+            existing_header = pd.DataFrame()
+        if not existing_header.empty or len(existing_header.columns) > 0:
+            columns = list(existing_header.columns)
+            extra_columns = [column for column in frame.columns if column not in columns]
+            if extra_columns:
+                existing = pd.read_csv(path)
+                columns.extend(extra_columns)
+                existing.reindex(columns=columns).to_csv(path, index=False)
+            frame.reindex(columns=columns).to_csv(path, mode="a", index=False, header=False)
+            return
     frame.to_csv(path, mode="a", index=False, header=not path.exists())
 
 
