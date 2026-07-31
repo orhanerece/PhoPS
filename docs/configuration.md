@@ -19,6 +19,8 @@ phops init-config config.yaml
   Pixel scale, gain, read noise, and saturation level.
 - `photometry`
   Target mode, filter, aperture settings, and zeropoint behavior.
+- `photometry.ephemeris_provider`
+  Optional asteroid ephemeris service selection: `jpl` or `skybot`.
 - `photometry.export_reference_star_timeseries`
   Optional export of calibrated per-frame photometry for valid reference stars used in calibration.
 - `photometry.ransac_threshold_mode`
@@ -35,6 +37,21 @@ phops init-config config.yaml
   Requires `photometry.target_id`
 - `photometry.mode: star`
   Requires `photometry.coords` and `photometry.coords_unit`
+
+## Ephemeris Provider
+- `photometry.ephemeris_provider: jpl`
+  Uses JPL Horizons to resolve the configured asteroid target. This is the default.
+- `photometry.ephemeris_provider: skybot`
+  Uses the IMCCE SkyBot resolver to resolve the configured asteroid target. This uses the configured `observatory.observatory_code` and is intended as a fast alternative for ordinary Solar System object target photometry.
+
+Example:
+
+```yaml
+photometry:
+  mode: "asteroid"
+  target_id: "19184"
+  ephemeris_provider: "skybot"
+```
 
 ## Target Coordinate Units
 - `photometry.coords_unit: deg`

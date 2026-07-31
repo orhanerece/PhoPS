@@ -37,6 +37,7 @@ matching:
 photometry:
   mode: "asteroid"
   target_id: "19184"
+  ephemeris_provider: "jpl"
   coords: [124.756279, 16.294038]
   coords_unit: "deg"
   filter: "R"

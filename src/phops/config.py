@@ -15,6 +15,7 @@ from .errors import ConfigurationError
 PlotScale = Literal["pixel", "wcs"]
 LightCurveXAxis = Literal["relative_seconds", "jd"]
 PhotometryMode = Literal["asteroid", "star"]
+EphemerisProvider = Literal["jpl", "skybot"]
 ApertureMethod = Literal["fixed_pixel", "fixed_arcsec", "fwhm_factor"]
 ZeroPointMode = Literal["fit", "average"]
 AstrometryMode = Literal["solve", "existing_wcs"]
@@ -217,6 +218,7 @@ class MatchingConfig:
 class PhotometryConfig:
     mode: PhotometryMode = "asteroid"
     target_id: str | None = None
+    ephemeris_provider: EphemerisProvider = "jpl"
     coords: tuple[float, float] | None = None
     coords_unit: CoordinateUnit = "deg"
     filter: str = "R"
@@ -246,6 +248,7 @@ class PhotometryConfig:
         return cls(
             mode=str(mapping.get("mode", "asteroid")),
             target_id=None if mapping.get("target_id") in (None, "") else str(mapping.get("target_id")),
+            ephemeris_provider=str(mapping.get("ephemeris_provider", "jpl")).lower(),
             coords=_parse_coords(mapping.get("coords"), coords_unit),
             coords_unit=coords_unit,
             filter=str(mapping.get("filter", "R")),
@@ -290,6 +293,8 @@ class PhotometryConfig:
     def validate(self) -> None:
         if self.mode not in {"asteroid", "star"}:
             raise ConfigurationError("'photometry.mode' must be either 'asteroid' or 'star'.")
+        if self.ephemeris_provider not in {"jpl", "skybot"}:
+            raise ConfigurationError("'photometry.ephemeris_provider' must be either 'jpl' or 'skybot'.")
         if self.coords_unit not in {"deg", "hourangle_deg"}:
             raise ConfigurationError("'photometry.coords_unit' must be either 'deg' or 'hourangle_deg'.")
         if self.aperture_method not in {"fixed_pixel", "fixed_arcsec", "fwhm_factor"}:

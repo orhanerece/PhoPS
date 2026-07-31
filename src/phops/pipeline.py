@@ -390,6 +390,7 @@ def build_run_summary_items(
         ("Input", input_value),
         ("Mode", config.photometry.mode),
         ("Target", target_value),
+        ("Ephemeris", config.photometry.ephemeris_provider if config.photometry.mode == "asteroid" else "not used"),
         ("Run mode", "restart" if overwrite else "resume"),
         ("Astrometry", config.astrometry.solve_mode),
         ("Photometry CSV", str(config.paths.photometry_csv_path)),
@@ -400,7 +401,7 @@ def build_run_summary_items(
     ]
     if existing_state is not None and not overwrite:
         items.insert(
-            5,
+            6,
             (
                 "Resume state",
                 f"{len(existing_state.completed_frames)} completed | {total_files} pending",

@@ -9,6 +9,7 @@ from phops.errors import ConfigurationError
 def test_load_example_config() -> None:
     config = load_config(Path("examples/example_config.yaml"))
     assert config.photometry.mode == "asteroid"
+    assert config.photometry.ephemeris_provider == "jpl"
     assert config.photometry.export_reference_star_timeseries is False
     assert config.photometry.ransac_threshold_mode == "auto"
     assert config.photometry.ransac_threshold == 0.10
@@ -104,4 +105,33 @@ paths:
     )
 
     with pytest.raises(ConfigurationError, match="ransac_threshold_mode"):
+        load_config(config_path)
+
+
+def test_invalid_ephemeris_provider_raises_clear_error(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+fits_keywords:
+  ra_key: "RA"
+  dec_key: "DEC"
+  date_key: "DATE-OBS"
+  exposure_key: "EXPTIME"
+  jd_key: "JD"
+instrument:
+  pixel_scale: 0.62
+photometry:
+  mode: "asteroid"
+  target_id: "19184"
+  ephemeris_provider: "mpc"
+paths:
+  input_dir: "input"
+  temp_dir: "temp"
+  index_dir: "indexes"
+  solve_dir: "output"
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match="ephemeris_provider"):
         load_config(config_path)

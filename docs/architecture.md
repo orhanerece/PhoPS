@@ -14,7 +14,7 @@ PhoPS is split into reusable layers:
 - `src/phops/photometry.py`
   Handles source matching, calibration, and target measurement.
 - `src/phops/target.py`
-  Resolves asteroid or fixed-star coordinates.
+  Resolves asteroid or fixed-star coordinates. Asteroid mode can use JPL Horizons or the IMCCE SkyBot resolver.
 
 ## Interface Layer
 - `src/phops/cli.py`

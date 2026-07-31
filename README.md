@@ -27,7 +27,7 @@ PhoPS depends on Python packages and a few system tools:
 - `solve-field`
 - `hpsplit`
 - `build-astrometry-index`
-- Internet access for Gaia and JPL Horizons queries during runtime
+- Internet access for Gaia and ephemeris queries during runtime
 
 Those three binaries come from astrometry.net and must be available on `PATH`.
 
@@ -79,6 +79,7 @@ phops gui -c config.yaml
 - Put your FITS files into the folder defined by `paths.input_dir`.
 - Set `photometry.mode` to `asteroid` or `star`.
 - In `asteroid` mode, set `photometry.target_id`.
+- In `asteroid` mode, set `photometry.ephemeris_provider` to `jpl` or `skybot`; the default is `jpl`.
 - In `star` mode, set `photometry.coords` and declare `photometry.coords_unit`.
 - `photometry.coords_unit: deg` means both values are degrees.
 - `photometry.coords_unit: hourangle_deg` means RA is hour angle and Dec is degrees.
