@@ -20,7 +20,7 @@ phops init-config config.yaml
 - `photometry`
   Target mode, filter, aperture settings, and zeropoint behavior.
 - `photometry.ephemeris_provider`
-  Optional asteroid ephemeris service selection: `jpl` or `skybot`.
+  Optional asteroid ephemeris service selection: `jpl` or `miriade`.
 - `photometry.export_reference_star_timeseries`
   Optional export of calibrated per-frame photometry for valid reference stars used in calibration.
 - `photometry.ransac_threshold_mode`
@@ -41,8 +41,8 @@ phops init-config config.yaml
 ## Ephemeris Provider
 - `photometry.ephemeris_provider: jpl`
   Uses JPL Horizons to resolve the configured asteroid target. This is the default.
-- `photometry.ephemeris_provider: skybot`
-  Uses the IMCCE SkyBot resolver to resolve the configured asteroid target. This uses the configured `observatory.observatory_code` and is intended as a fast alternative for ordinary Solar System object target photometry.
+- `photometry.ephemeris_provider: miriade`
+  Uses IMCCE Miriade ephemcc to resolve the configured asteroid target. This uses the configured `observatory.observatory_code` and is intended as a fast alternative for ordinary Solar System object target photometry.
 
 Example:
 
@@ -50,8 +50,10 @@ Example:
 photometry:
   mode: "asteroid"
   target_id: "19184"
-  ephemeris_provider: "skybot"
+  ephemeris_provider: "miriade"
 ```
+
+SkyBot cone-search is a separate IMCCE service for identifying all Solar System objects inside a field of view. It is not used for configured target ephemerides.
 
 ## Target Coordinate Units
 - `photometry.coords_unit: deg`

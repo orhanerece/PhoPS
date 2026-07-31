@@ -15,9 +15,8 @@ from .errors import TargetResolutionError
 from .reporting import NullReporter, ProgressReporter, report
 from .utils import dec_to_deg, observation_jd_from_header, ra_to_deg
 
-SKYBOT_RESOLVER_URL = "https://ssp.imcce.fr/webservices/skybot/api/resolver.php"
-SKYBOT_TIMEOUT_SECONDS = 30
-AU_LIGHT_TIME_DAYS = 499.004783836 / 86400.0
+MIRIADE_EPHEMCC_URL = "https://ssp.imcce.fr/webservices/miriade/api/ephemcc.php"
+MIRIADE_TIMEOUT_SECONDS = 30
 
 
 def _optional_float(record: dict[str, Any], keys: tuple[str, ...]) -> float | None:
@@ -32,66 +31,50 @@ def _optional_float(record: dict[str, Any], keys: tuple[str, ...]) -> float | No
     return None
 
 
-def _skybot_ra_degrees(record: dict[str, Any]) -> float:
-    value = _optional_float(record, ("RA (deg)", "_raj2000", "RA"))
+def _ra_degrees(record: dict[str, Any]) -> float:
+    value = _optional_float(record, ("RA", "RA (deg)", "_raj2000"))
     if value is not None:
         return value
 
-    hour_value = record.get("RA (hour)")
+    hour_value = record.get("RA") or record.get("RA (hour)")
     if hour_value in (None, ""):
-        raise TargetResolutionError("SkyBot response did not include a valid RA.")
+        raise TargetResolutionError("Miriade response did not include a valid RA.")
     return ra_to_deg(":".join(str(hour_value).strip().split()))
 
 
-def _skybot_dec_degrees(record: dict[str, Any]) -> float:
-    value = _optional_float(record, ("DEC (deg)", "_decj2000", "DEC"))
+def _dec_degrees(record: dict[str, Any]) -> float:
+    value = _optional_float(record, ("DEC", "DEC (deg)", "_decj2000"))
     if value is not None:
         return value
 
     dec_value = record.get("DEC")
     if dec_value in (None, ""):
-        raise TargetResolutionError("SkyBot response did not include a valid Dec.")
+        raise TargetResolutionError("Miriade response did not include a valid Dec.")
     return dec_to_deg(":".join(str(dec_value).strip().split()))
 
 
-def _skybot_records_from_payload(payload: object) -> list[dict[str, Any]]:
-    if isinstance(payload, dict):
-        flag = payload.get("flag")
-        if flag in (0, -1, "0", "-1"):
-            status = payload.get("status", "unknown error")
-            raise TargetResolutionError(f"SkyBot resolver returned an error: {status}")
-        result = payload.get("result")
-        if isinstance(result, str):
-            payload = json.loads(result)
-        elif result is not None:
-            payload = result
+def _miriade_data_record(payload: object) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise TargetResolutionError("Miriade ephemcc returned an unexpected response format.")
 
-    if isinstance(payload, dict):
-        payload = [payload]
-    if not isinstance(payload, list):
-        raise TargetResolutionError("SkyBot resolver returned an unexpected response format.")
+    flag = payload.get("flag")
+    if flag in (0, -1, "0", "-1"):
+        status = payload.get("status", "unknown error")
+        raise TargetResolutionError(f"Miriade ephemcc returned an error: {status}")
 
-    records = [item for item in payload if isinstance(item, dict)]
-    if not records:
-        raise TargetResolutionError("SkyBot resolver did not return a matching target.")
-    return records
+    data = payload.get("data")
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return data[0]
+    raise TargetResolutionError("Miriade ephemcc did not return target ephemeris data.")
 
 
-def _normalise_identifier(value: object) -> str:
-    return str(value).strip().lower().replace(" ", "").strip("()")
-
-
-def _select_skybot_record(records: list[dict[str, Any]], target_id: str) -> dict[str, Any]:
-    target_key = _normalise_identifier(target_id)
-    for record in records:
-        if _normalise_identifier(record.get("Num", "")) == target_key:
-            return record
-        if _normalise_identifier(record.get("Name", "")) == target_key:
-            return record
-    if len(records) == 1:
-        return records[0]
-    candidates = ", ".join(str(record.get("Name") or record.get("Num") or "<unnamed>") for record in records[:5])
-    raise TargetResolutionError(f"SkyBot resolver returned multiple candidates for {target_id}: {candidates}")
+def _miriade_target_name(target_id: str) -> str:
+    prefix, separator, _ = target_id.partition(":")
+    if separator and prefix.isalpha():
+        return target_id
+    return f"a:{target_id}"
 
 
 @dataclass
@@ -147,8 +130,8 @@ class TargetManager:
         if not self.config.photometry.target_id:
             raise TargetResolutionError("Asteroid mode requires 'photometry.target_id' in the configuration.")
 
-        if self.config.photometry.ephemeris_provider == "skybot":
-            return self._resolve_asteroid_with_skybot(jd_value)
+        if self.config.photometry.ephemeris_provider == "miriade":
+            return self._resolve_asteroid_with_miriade(jd_value)
         return self._resolve_asteroid_with_jpl(jd_value)
 
     def _resolve_asteroid_with_jpl(self, jd_value: float) -> TargetInfo:
@@ -178,42 +161,47 @@ class TargetManager:
         except Exception as exc:
             raise TargetResolutionError(f"JPL Horizons query failed: {exc}") from exc
 
-    def _resolve_asteroid_with_skybot(self, jd_value: float) -> TargetInfo:
+    def _resolve_asteroid_with_miriade(self, jd_value: float) -> TargetInfo:
         target_id = str(self.config.photometry.target_id)
         report(
             self.reporter,
             "info",
-            f"Querying SkyBot resolver for target {target_id} at JD={jd_value:.6f}",
+            f"Querying Miriade ephemcc for target {target_id} at JD={jd_value:.6f}",
             stage="target",
         )
         params = {
-            "-name": target_id,
+            "-name": _miriade_target_name(target_id),
             "-ep": f"{jd_value:.8f}",
-            "-mime": "json",
-            "-output": "all",
+            "-nbd": "1",
+            "-tscale": "UTC",
             "-observer": self.config.observatory.observatory_code,
-            "-refsys": "EQJ2000",
+            "-teph": "1",
+            "-tcoor": "5",
+            "-rplane": "1",
+            "-oscelem": "astorb",
+            "-mime": "json",
+            "-output": "--jd,--lighttime",
             "-from": "PhoPS",
         }
         request = Request(
-            f"{SKYBOT_RESOLVER_URL}?{urlencode(params)}",
+            f"{MIRIADE_EPHEMCC_URL}?{urlencode(params)}",
             headers={"User-Agent": "PhoPS/0.1"},
         )
         try:
-            with urlopen(request, timeout=SKYBOT_TIMEOUT_SECONDS) as response:
+            with urlopen(request, timeout=MIRIADE_TIMEOUT_SECONDS) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-            record = _select_skybot_record(_skybot_records_from_payload(payload), target_id)
-            delta = _optional_float(record, ("dg (ua)", "dg (au)", "delta", "Delta"))
-            lighttime_days = delta * AU_LIGHT_TIME_DAYS if delta is not None else 0.0
+            record = _miriade_data_record(payload)
+            lighttime_minutes = _optional_float(record, ("LightTime", "lighttime"))
+            lighttime_days = lighttime_minutes / 60.0 / 24.0 if lighttime_minutes is not None else 0.0
             return TargetInfo(
-                ra=_skybot_ra_degrees(record),
-                dec=_skybot_dec_degrees(record),
+                ra=_ra_degrees(record),
+                dec=_dec_degrees(record),
                 jd=jd_value - lighttime_days,
-                r=_optional_float(record, ("dh (ua)", "dh (au)", "r")),
-                delta=delta,
-                alpha=_optional_float(record, ("Phase (deg)", "alpha")),
+                r=_optional_float(record, ("Dhelio", "r")),
+                delta=_optional_float(record, ("Dobs", "delta", "Delta")),
+                alpha=_optional_float(record, ("Phase", "alpha")),
             )
         except TargetResolutionError:
             raise
         except Exception as exc:
-            raise TargetResolutionError(f"SkyBot resolver query failed: {exc}") from exc
+            raise TargetResolutionError(f"Miriade ephemcc query failed: {exc}") from exc

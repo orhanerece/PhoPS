@@ -79,7 +79,7 @@ phops gui -c config.yaml
 - Put your FITS files into the folder defined by `paths.input_dir`.
 - Set `photometry.mode` to `asteroid` or `star`.
 - In `asteroid` mode, set `photometry.target_id`.
-- In `asteroid` mode, set `photometry.ephemeris_provider` to `jpl` or `skybot`; the default is `jpl`.
+- In `asteroid` mode, set `photometry.ephemeris_provider` to `jpl` or `miriade`; the default is `jpl`.
 - In `star` mode, set `photometry.coords` and declare `photometry.coords_unit`.
 - `photometry.coords_unit: deg` means both values are degrees.
 - `photometry.coords_unit: hourangle_deg` means RA is hour angle and Dec is degrees.

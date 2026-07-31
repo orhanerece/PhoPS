@@ -15,7 +15,7 @@ from .errors import ConfigurationError
 PlotScale = Literal["pixel", "wcs"]
 LightCurveXAxis = Literal["relative_seconds", "jd"]
 PhotometryMode = Literal["asteroid", "star"]
-EphemerisProvider = Literal["jpl", "skybot"]
+EphemerisProvider = Literal["jpl", "miriade"]
 ApertureMethod = Literal["fixed_pixel", "fixed_arcsec", "fwhm_factor"]
 ZeroPointMode = Literal["fit", "average"]
 AstrometryMode = Literal["solve", "existing_wcs"]
@@ -293,8 +293,8 @@ class PhotometryConfig:
     def validate(self) -> None:
         if self.mode not in {"asteroid", "star"}:
             raise ConfigurationError("'photometry.mode' must be either 'asteroid' or 'star'.")
-        if self.ephemeris_provider not in {"jpl", "skybot"}:
-            raise ConfigurationError("'photometry.ephemeris_provider' must be either 'jpl' or 'skybot'.")
+        if self.ephemeris_provider not in {"jpl", "miriade"}:
+            raise ConfigurationError("'photometry.ephemeris_provider' must be either 'jpl' or 'miriade'.")
         if self.coords_unit not in {"deg", "hourangle_deg"}:
             raise ConfigurationError("'photometry.coords_unit' must be either 'deg' or 'hourangle_deg'.")
         if self.aperture_method not in {"fixed_pixel", "fixed_arcsec", "fwhm_factor"}:
